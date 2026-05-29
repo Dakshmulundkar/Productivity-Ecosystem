@@ -93,8 +93,8 @@ Whether you're a student juggling deadlines, a developer managing sprints, or so
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/dakshmulundkars-projects/productivity-ecosystem.git
-cd productivity-ecosystem
+git clone https://github.com/Dakshmulundkar/Productivity-Ecosystem.git
+cd Productivity-Ecosystem
 ```
 
 ### 2. Install dependencies
@@ -161,29 +161,49 @@ Scan the QR code with the **Expo Go** app on your phone, or press `a` for Androi
 
 ### Option A — EAS Build (recommended, cloud build)
 
+Install EAS CLI:
+
 ```bash
-# Login to your Expo account
-eas login
-
-# Configure the project (first time only)
-eas build:configure
-
-# Build a release APK
-eas build --platform android --profile production
+npm install -g eas-cli
 ```
 
-Your APK will be available to download from the EAS dashboard once the build completes.
+Login to your Expo account (create one free at [expo.dev](https://expo.dev) if needed):
+
+```bash
+eas login
+```
+
+Configure EAS for this project (first time only):
+
+```bash
+eas build:configure
+```
+
+Build the APK:
+
+```bash
+eas build --platform android --profile preview
+```
+
+Your APK download link will appear in the terminal once the build completes.
 
 ### Option B — Local build
 
+Generate the native Android project:
+
 ```bash
-# Generate native Android project
 npx expo prebuild --platform android
+```
 
-# Build debug APK
+Build debug APK (faster, for testing):
+
+```bash
 cd android && ./gradlew assembleDebug
+```
 
-# Build release APK
+Build release APK:
+
+```bash
 cd android && ./gradlew assembleRelease
 ```
 
@@ -260,4 +280,4 @@ SOFTWARE.
 
 ---
 
-Built with ❤️ by [Daksh Mulundkar](https://github.com/dakshmulundkars-projects)
+Built with ❤️ by [Daksh Mulundkar](https://github.com/Dakshmulundkar)

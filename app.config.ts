@@ -3,7 +3,7 @@ import "./scripts/load-env.js";
 import type { ExpoConfig } from "expo/config";
 
 // Bundle ID for the app
-const rawBundleId = "com.dakshmulundkarsprojects.productivityecosystem";
+const rawBundleId = "com.dakshmulundkarsprojects.vero";
 const bundleId =
   rawBundleId
     .replace(/[-_]/g, ".") // Replace hyphens/underscores with dots
@@ -23,8 +23,8 @@ const schemeFromBundleId = `daksh${schemeSegment}`;
 
 const env = {
   // App branding - update these values directly (do not use env vars)
-  appName: "Productivity",
-  appSlug: "productivity-ecosystem",
+  appName: "Vero",
+  appSlug: "vero",
   // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
   // Leave empty to use the default icon from assets/images/icon.png
   logoUrl: "",
