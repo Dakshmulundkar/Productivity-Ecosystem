@@ -1,13 +1,10 @@
 /**
- * Custom environment loader that prioritizes system environment variables
- * over .env file values.
+ * Custom environment loader — CommonJS compatible.
+ * Prioritizes system environment variables over .env file values.
+ * Works in both Expo Metro (ESM) and EAS CLI (CJS) contexts.
  */
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const fs = require("fs");
+const path = require("path");
 
 const envPath = path.resolve(process.cwd(), ".env");
 
@@ -21,6 +18,7 @@ if (fs.existsSync(envPath)) {
     if (match) {
       const key = match[1].trim();
       const value = match[2].trim().replace(/^["']|["']$/g, "");
+      // System env vars take priority — never overwrite
       if (!process.env[key]) {
         process.env[key] = value;
       }
