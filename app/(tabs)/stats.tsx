@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, memo } from "react";
+import React, { useState, useCallback, useEffect, memo, useMemo } from "react";
 import {
   View,
   Text,
@@ -13,15 +13,23 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withDelay,
+  withSpring,
   Easing,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { TrendingUp } from "lucide-react-native";
+import { TrendingUp, Plus } from "lucide-react-native";
 import { FontFamily } from "@/lib/_core/theme";
+import { HabitsTab } from "@/components/habits/HabitsTab";
+import { NewHabitSheet } from "@/components/habits/NewHabitSheet";
+import { HabitHeatmap } from "@/components/habits/HabitHeatmap";
+import { useTaskStore } from "@/store/useTaskStore";
+import { useFocusStore } from "@/store/useFocusStore";
+import { useHabitStore } from "@/store/useHabitStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type MainTab = "Analytics" | "Habits";
 type FilterOption = "Today" | "Weekly" | "Monthly";
 
 interface BarData {
@@ -40,97 +48,19 @@ interface MiniStat {
   subColor: string;
 }
 
-interface CategoryRow {
-  name: string;
-  color: string;
-  percent: number;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function toISO(d: Date): string { return d.toISOString().slice(0, 10); }
+function addDays(d: Date, n: number): Date { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+
+function formatFocusHours(seconds: number): string {
+  if (seconds < 60) return seconds > 0 ? `${seconds}s` : "0m";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
 }
-
-// ─── Mock data ────────────────────────────────────────────────────────────────
-
-const FILTER_DATA: Record<FilterOption, {
-  score: number;
-  scoreTrend: string;
-  bars: BarData[];
-  miniStats: MiniStat[];
-  categories: CategoryRow[];
-}> = {
-  Today: {
-    score: 84,
-    scoreTrend: "Your score increased 12% this month",
-    bars: [
-      { day: "Mon", value: 60, isToday: false },
-      { day: "Tue", value: 75, isToday: false },
-      { day: "Wed", value: 50, isToday: false },
-      { day: "Thu", value: 90, isToday: true  },
-      { day: "Fri", value: 40, isToday: false },
-      { day: "Sat", value: 30, isToday: false },
-      { day: "Sun", value: 20, isToday: false },
-    ],
-    miniStats: [
-      { bg: "#c8e6c9", label: "Focus Time",  value: "3.2h",    sub: "+40 min",    labelColor: "#166534", valueColor: "#14532d", subColor: "#166534" },
-      { bg: "#f8d7e3", label: "Tasks Done",  value: "12",      sub: "This week",  labelColor: "#9d174d", valueColor: "#831843", subColor: "#9d174d" },
-      { bg: "#fef3c7", label: "Streak",      value: "14 days", sub: "Best ever",  labelColor: "#92400e", valueColor: "#78350f", subColor: "#92400e" },
-      { bg: "#dbeafe", label: "Habit Rate",  value: "92%",     sub: "This week",  labelColor: "#1e40af", valueColor: "#1e3a8a", subColor: "#1e40af" },
-    ],
-    categories: [
-      { name: "Work",     color: "#7a3a3a", percent: 45 },
-      { name: "Health",   color: "#27774a", percent: 25 },
-      { name: "Personal", color: "#2e5fa3", percent: 20 },
-      { name: "Study",    color: "#6d4fc9", percent: 10 },
-    ],
-  },
-  Weekly: {
-    score: 78,
-    scoreTrend: "Consistent performance this week",
-    bars: [
-      { day: "Mon", value: 55, isToday: false },
-      { day: "Tue", value: 80, isToday: false },
-      { day: "Wed", value: 65, isToday: false },
-      { day: "Thu", value: 90, isToday: true  },
-      { day: "Fri", value: 70, isToday: false },
-      { day: "Sat", value: 45, isToday: false },
-      { day: "Sun", value: 35, isToday: false },
-    ],
-    miniStats: [
-      { bg: "#c8e6c9", label: "Focus Time",  value: "18.4h",   sub: "+2.1h vs last", labelColor: "#166534", valueColor: "#14532d", subColor: "#166534" },
-      { bg: "#f8d7e3", label: "Tasks Done",  value: "34",      sub: "This week",     labelColor: "#9d174d", valueColor: "#831843", subColor: "#9d174d" },
-      { bg: "#fef3c7", label: "Streak",      value: "14 days", sub: "Best ever",     labelColor: "#92400e", valueColor: "#78350f", subColor: "#92400e" },
-      { bg: "#dbeafe", label: "Habit Rate",  value: "88%",     sub: "This week",     labelColor: "#1e40af", valueColor: "#1e3a8a", subColor: "#1e40af" },
-    ],
-    categories: [
-      { name: "Work",     color: "#7a3a3a", percent: 50 },
-      { name: "Health",   color: "#27774a", percent: 20 },
-      { name: "Personal", color: "#2e5fa3", percent: 18 },
-      { name: "Study",    color: "#6d4fc9", percent: 12 },
-    ],
-  },
-  Monthly: {
-    score: 91,
-    scoreTrend: "Best month so far this year",
-    bars: [
-      { day: "Mon", value: 70, isToday: false },
-      { day: "Tue", value: 85, isToday: false },
-      { day: "Wed", value: 75, isToday: false },
-      { day: "Thu", value: 95, isToday: true  },
-      { day: "Fri", value: 80, isToday: false },
-      { day: "Sat", value: 60, isToday: false },
-      { day: "Sun", value: 50, isToday: false },
-    ],
-    miniStats: [
-      { bg: "#c8e6c9", label: "Focus Time",  value: "72h",     sub: "+8h vs last",  labelColor: "#166534", valueColor: "#14532d", subColor: "#166534" },
-      { bg: "#f8d7e3", label: "Tasks Done",  value: "128",     sub: "This month",   labelColor: "#9d174d", valueColor: "#831843", subColor: "#9d174d" },
-      { bg: "#fef3c7", label: "Streak",      value: "14 days", sub: "Best ever",    labelColor: "#92400e", valueColor: "#78350f", subColor: "#92400e" },
-      { bg: "#dbeafe", label: "Habit Rate",  value: "95%",     sub: "This month",   labelColor: "#1e40af", valueColor: "#1e3a8a", subColor: "#1e40af" },
-    ],
-    categories: [
-      { name: "Work",     color: "#7a3a3a", percent: 42 },
-      { name: "Health",   color: "#27774a", percent: 28 },
-      { name: "Personal", color: "#2e5fa3", percent: 20 },
-      { name: "Study",    color: "#6d4fc9", percent: 10 },
-    ],
-  },
-};
 
 // ─── Animated bar ─────────────────────────────────────────────────────────────
 
@@ -173,32 +103,6 @@ const MiniStatCard = memo(function MiniStatCard({ stat }: { stat: MiniStat }) {
   );
 });
 
-// ─── Category bar row ─────────────────────────────────────────────────────────
-
-const CategoryBarRow = memo(function CategoryBarRow({ row, delay }: { row: CategoryRow; delay: number }) {
-  const width = useSharedValue(0);
-
-  useEffect(() => {
-    width.value = withDelay(
-      delay,
-      withTiming(row.percent, { duration: 800, easing: Easing.out(Easing.cubic) }),
-    );
-  }, [row.percent, delay, width]);
-
-  const fillStyle = useAnimatedStyle(() => ({ width: `${width.value}%` as any }));
-
-  return (
-    <View style={styles.catRow}>
-      <View style={[styles.catDot, { backgroundColor: row.color }]} />
-      <Text style={styles.catName}>{row.name}</Text>
-      <View style={styles.catBarTrack}>
-        <Animated.View style={[styles.catBarFill, { backgroundColor: row.color }, fillStyle]} />
-      </View>
-      <Text style={styles.catPercent}>{row.percent}%</Text>
-    </View>
-  );
-});
-
 // ─── Score progress bar ───────────────────────────────────────────────────────
 
 function ScoreProgressBar({ percent, goal }: { percent: number; goal: number }) {
@@ -220,95 +124,286 @@ function ScoreProgressBar({ percent, goal }: { percent: number; goal: number }) 
   );
 }
 
-// ─── Screen ───────────────────────────────────────────────────────────────────
+// ─── Analytics tab content ────────────────────────────────────────────────────
 
-export default function StatsScreen() {
-  const insets = useSafeAreaInsets();
-  const scrollPaddingBottom = insets.bottom + 64 + 12 + 24;
-
+const AnalyticsContent = memo(function AnalyticsContent({
+  scrollPaddingBottom,
+}: {
+  scrollPaddingBottom: number;
+}) {
   const [activeFilter, setActiveFilter] = useState<FilterOption>("Today");
-  const data = FILTER_DATA[activeFilter];
+  const filters: FilterOption[] = ["Today", "Weekly", "Monthly"];
+
+  // ── Live data from stores ──
+  const tasks     = useTaskStore((s) => s.tasks);
+  const habits    = useHabitStore((s) => s.habits);
+  const habitLogs = useHabitStore((s) => s.logs);
+  const focusSecondsToday = useFocusStore((s) => s.focusSecondsToday);
+  const getHeatmapData = useHabitStore((s) => s.getHeatmapData);
+
+  const todayISO = toISO(new Date());
+  const todayDow = new Date().getDay(); // 0=Sun
+
+  // ── Weekly bar data — tasks done per day this week ──
+  const weekBars = useMemo((): BarData[] => {
+    const DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = addDays(new Date(), i - todayDow + (todayDow === 0 ? -6 : 1)); // Mon-based
+      const iso = toISO(d);
+      const total = tasks.filter((t) => t.dueDateISO === iso).length;
+      const done  = tasks.filter((t) => t.dueDateISO === iso && t.done).length;
+      const value = total > 0 ? Math.round((done / total) * 100) : 0;
+      return { day: DAY_ABBR[d.getDay()], value, isToday: iso === todayISO };
+    });
+  }, [tasks, todayISO, todayDow]);
+
+  // ── Score — composite of tasks/focus/habits for the period ──
+  const score = useMemo(() => {
+    if (activeFilter === "Today") {
+      const total = tasks.filter((t) => t.dueDateISO === todayISO).length;
+      const done  = tasks.filter((t) => t.dueDateISO === todayISO && t.done).length;
+      const taskScore   = total > 0 ? (done / total) * 40 : 0;
+      const focusScore  = Math.min(focusSecondsToday / (2 * 3600), 1) * 30;
+      const habitCount  = habits.length > 0
+        ? habits.filter((h) => habitLogs.some((l) => l.habitId === h.id && l.date === todayISO)).length
+        : 0;
+      const habitScore  = habits.length > 0 ? (habitCount / habits.length) * 30 : 0;
+      return Math.round(taskScore + focusScore + habitScore);
+    }
+    if (activeFilter === "Weekly") {
+      const weekDates = Array.from({ length: 7 }, (_, i) =>
+        toISO(addDays(new Date(), i - todayDow + (todayDow === 0 ? -6 : 1))),
+      );
+      const total = tasks.filter((t) => weekDates.includes(t.dueDateISO)).length;
+      const done  = tasks.filter((t) => weekDates.includes(t.dueDateISO) && t.done).length;
+      return total > 0 ? Math.round((done / total) * 100) : 0;
+    }
+    // Monthly
+    const year = new Date().getFullYear(), month = new Date().getMonth();
+    const monthDates = Array.from({ length: new Date(year, month + 1, 0).getDate() }, (_, i) =>
+      toISO(new Date(year, month, i + 1)),
+    );
+    const total = tasks.filter((t) => monthDates.includes(t.dueDateISO)).length;
+    const done  = tasks.filter((t) => monthDates.includes(t.dueDateISO) && t.done).length;
+    return total > 0 ? Math.round((done / total) * 100) : 0;
+  }, [activeFilter, tasks, habits, habitLogs, focusSecondsToday, todayISO, todayDow]);
+
+  const scoreTrend = score >= 70 ? "Great performance" : score >= 40 ? "Making progress" : "Room to grow";
+
+  // ── Mini stats — all live ──
+  const miniStats = useMemo((): MiniStat[] => {
+    // Focus time
+    const focusVal = formatFocusHours(focusSecondsToday);
+
+    // Tasks done
+    let tasksDone: number;
+    let tasksSub: string;
+    if (activeFilter === "Today") {
+      tasksDone = tasks.filter((t) => t.dueDateISO === todayISO && t.done).length;
+      tasksSub = "Today";
+    } else if (activeFilter === "Weekly") {
+      const weekDates = Array.from({ length: 7 }, (_, i) =>
+        toISO(addDays(new Date(), i - todayDow + (todayDow === 0 ? -6 : 1))),
+      );
+      tasksDone = tasks.filter((t) => weekDates.includes(t.dueDateISO) && t.done).length;
+      tasksSub = "This week";
+    } else {
+      const year = new Date().getFullYear(), month = new Date().getMonth();
+      const monthDates = Array.from({ length: new Date(year, month + 1, 0).getDate() }, (_, i) =>
+        toISO(new Date(year, month, i + 1)),
+      );
+      tasksDone = tasks.filter((t) => monthDates.includes(t.dueDateISO) && t.done).length;
+      tasksSub = "This month";
+    }
+
+    // Streak — consecutive days with at least one task done
+    const doneDates = new Set(tasks.filter((t) => t.done).map((t) => t.dueDateISO));
+    let streak = 0;
+    let d = new Date();
+    if (!doneDates.has(toISO(d))) d = addDays(d, -1);
+    while (doneDates.has(toISO(d))) { streak++; d = addDays(d, -1); }
+
+    // Habit rate
+    const habitRate = habits.length > 0
+      ? Math.round(
+          habits.filter((h) => habitLogs.some((l) => l.habitId === h.id && l.date === todayISO)).length
+          / habits.length * 100,
+        )
+      : 0;
+
+    return [
+      { bg: "#c8e6c9", label: "Focus Time", value: focusVal,          sub: "Today",    labelColor: "#166534", valueColor: "#14532d", subColor: "#166534" },
+      { bg: "#f8d7e3", label: "Tasks Done", value: String(tasksDone), sub: tasksSub,   labelColor: "#9d174d", valueColor: "#831843", subColor: "#9d174d" },
+      { bg: "#fef3c7", label: "Streak",     value: `${streak}d`,      sub: streak > 0 ? "Keep going!" : "Start today", labelColor: "#92400e", valueColor: "#78350f", subColor: "#92400e" },
+      { bg: "#dbeafe", label: "Habit Rate", value: `${habitRate}%`,   sub: "Today",    labelColor: "#1e40af", valueColor: "#1e3a8a", subColor: "#1e40af" },
+    ];
+  }, [activeFilter, tasks, habits, habitLogs, focusSecondsToday, todayISO, todayDow]);
 
   const handleFilter = useCallback((f: FilterOption) => {
     Haptics.selectionAsync();
     setActiveFilter(f);
   }, []);
 
-  const filters: FilterOption[] = ["Today", "Weekly", "Monthly"];
+  return (
+    <ScrollView
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={[styles.analyticsContent, { paddingBottom: scrollPaddingBottom }]}
+    >
+      {/* Filter pills */}
+      <View style={styles.filterRow}>
+        {filters.map((f) => (
+          <Pressable
+            key={f}
+            onPress={() => handleFilter(f)}
+            style={[styles.filterPill, activeFilter === f ? styles.filterPillActive : styles.filterPillInactive]}
+          >
+            <Text style={[styles.filterPillText, activeFilter === f ? styles.filterPillTextActive : styles.filterPillTextInactive]}>
+              {f}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Score card */}
+      <Animated.View entering={FadeInDown.delay(60).duration(400)} style={styles.scoreCard}>
+        <View style={styles.scoreLeft}>
+          <Text style={styles.scoreLabel}>PRODUCTIVITY</Text>
+          <Text style={styles.scoreNumber}>{score}%</Text>
+          <View style={styles.scoreTrendRow}>
+            <TrendingUp size={12} color="#5a4fa0" />
+            <Text style={styles.scoreTrend}>{scoreTrend}</Text>
+          </View>
+        </View>
+        <View style={styles.scoreBarContainer}>
+          <ScoreProgressBar percent={score} goal={90} />
+          <Text style={styles.scoreGoal}>Goal: 90%</Text>
+        </View>
+      </Animated.View>
+
+      {/* Bar chart — live weekly task completion */}
+      <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.chartCard}>
+        <Text style={styles.cardTitle}>Weekly Overview</Text>
+        <View style={styles.barsRow}>
+          {weekBars.map((bar, i) => (
+            <AnimatedBar key={bar.day} bar={bar} delay={i * 60} />
+          ))}
+        </View>
+      </Animated.View>
+
+      {/* Mini stat grid — all live */}
+      <Animated.View entering={FadeInDown.delay(180).duration(400)} style={styles.miniGrid}>
+        <MiniStatCard stat={miniStats[0]} />
+        <MiniStatCard stat={miniStats[1]} />
+      </Animated.View>
+      <Animated.View entering={FadeInDown.delay(220).duration(400)} style={styles.miniGrid}>
+        <MiniStatCard stat={miniStats[2]} />
+        <MiniStatCard stat={miniStats[3]} />
+      </Animated.View>
+
+      {/* Overall Habits — heatmaps */}
+      {habits.length > 0 && (
+        <Animated.View entering={FadeInDown.delay(260).duration(400)} style={styles.heatmapCard}>
+          <Text style={styles.cardTitle}>Overall Habits</Text>
+          <View style={styles.heatmapList}>
+            {habits.map((habit, i) => (
+              <View
+                key={habit.id}
+                style={[styles.heatmapItem, i < habits.length - 1 && styles.heatmapItemBorder]}
+              >
+                <HabitHeatmap
+                  habitName={habit.name}
+                  frequency="Everyday"
+                  cells={getHeatmapData(habit.id, 8)}
+                />
+              </View>
+            ))}
+          </View>
+        </Animated.View>
+      )}
+    </ScrollView>
+  );
+});
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
+
+export default function StatsScreen() {
+  const insets = useSafeAreaInsets();
+  const scrollPaddingBottom = insets.bottom + 64 + 12 + 24;
+
+  const [activeTab, setActiveTab] = useState<MainTab>("Analytics");
+  const [showNewHabit, setShowNewHabit] = useState(false);
+
+  const addBtnScale = useSharedValue(1);
+  const addBtnStyle = useAnimatedStyle(() => ({ transform: [{ scale: addBtnScale.value }] }));
+
+  const handleAddHabit = useCallback(() => {
+    addBtnScale.value = withSpring(0.88, { damping: 12, stiffness: 350 }, () => {
+      addBtnScale.value = withSpring(1, { damping: 12, stiffness: 350 });
+    });
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setShowNewHabit(true);
+  }, [addBtnScale]);
+
+  const handleTabChange = useCallback((tab: MainTab) => {
+    Haptics.selectionAsync();
+    setActiveTab(tab);
+  }, []);
 
   return (
     <View style={styles.screen}>
       <StatusBar barStyle="dark-content" backgroundColor="#f2f0ec" />
 
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.content, { paddingTop: insets.top + 16, paddingBottom: scrollPaddingBottom }]}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Header */}
-        <Animated.View entering={FadeInDown.delay(0).duration(400)} style={styles.headerRow}>
+      {/* Fixed header */}
+      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+        <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>Statistics</Text>
-          <View style={styles.filterRow}>
-            {filters.map((f) => (
-              <Pressable
-                key={f}
-                onPress={() => handleFilter(f)}
-                style={[styles.filterPill, activeFilter === f ? styles.filterPillActive : styles.filterPillInactive]}
-              >
-                <Text style={[styles.filterPillText, activeFilter === f ? styles.filterPillTextActive : styles.filterPillTextInactive]}>
-                  {f}
-                </Text>
+          {activeTab === "Habits" && (
+            <Animated.View style={addBtnStyle}>
+              <Pressable onPress={handleAddHabit} style={styles.addBtn}>
+                <Plus size={18} color="#ffffff" strokeWidth={2.5} />
               </Pressable>
-            ))}
-          </View>
-        </Animated.View>
+            </Animated.View>
+          )}
+        </View>
 
-        {/* Score card */}
-        <Animated.View entering={FadeInDown.delay(60).duration(400)} style={styles.scoreCard}>
-          <View style={styles.scoreLeft}>
-            <Text style={styles.scoreLabel}>PRODUCTIVITY</Text>
-            <Text style={styles.scoreNumber}>{data.score}%</Text>
-            <View style={styles.scoreTrendRow}>
-              <TrendingUp size={12} color="#5a4fa0" />
-              <Text style={styles.scoreTrend}>{data.scoreTrend}</Text>
-            </View>
-          </View>
-          <View style={styles.scoreBarContainer}>
-            <ScoreProgressBar percent={data.score} goal={90} />
-            <Text style={styles.scoreGoal}>Goal: 90%</Text>
-          </View>
-        </Animated.View>
+        {/* Main tab toggle */}
+        <View style={styles.mainTabRow}>
+          {(["Analytics", "Habits"] as MainTab[]).map((tab) => (
+            <Pressable
+              key={tab}
+              onPress={() => handleTabChange(tab)}
+              style={[
+                styles.mainTab,
+                activeTab === tab ? styles.mainTabActive : styles.mainTabInactive,
+              ]}
+            >
+              <Text style={[
+                styles.mainTabText,
+                activeTab === tab ? styles.mainTabTextActive : styles.mainTabTextInactive,
+              ]}>
+                {tab}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
 
-        {/* Bar chart */}
-        <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.chartCard}>
-          <Text style={styles.cardTitle}>Weekly Overview</Text>
-          <View style={styles.barsRow}>
-            {data.bars.map((bar, i) => (
-              <AnimatedBar key={bar.day} bar={bar} delay={i * 60} />
-            ))}
-          </View>
-        </Animated.View>
+      {/* Tab content */}
+      {activeTab === "Analytics" && (
+        <AnalyticsContent scrollPaddingBottom={scrollPaddingBottom} />
+      )}
+      {activeTab === "Habits" && (
+        <HabitsTab
+          onAddHabit={handleAddHabit}
+          scrollPaddingBottom={scrollPaddingBottom}
+        />
+      )}
 
-        {/* Mini stat grid */}
-        <Animated.View entering={FadeInDown.delay(180).duration(400)} style={styles.miniGrid}>
-          <MiniStatCard stat={data.miniStats[0]} />
-          <MiniStatCard stat={data.miniStats[1]} />
-        </Animated.View>
-        <Animated.View entering={FadeInDown.delay(220).duration(400)} style={styles.miniGrid}>
-          <MiniStatCard stat={data.miniStats[2]} />
-          <MiniStatCard stat={data.miniStats[3]} />
-        </Animated.View>
-
-        {/* Category breakdown */}
-        <Animated.View entering={FadeInDown.delay(260).duration(400)} style={styles.catCard}>
-          <Text style={styles.cardTitle}>Time by Category</Text>
-          <View style={styles.catList}>
-            {data.categories.map((row, i) => (
-              <CategoryBarRow key={row.name} row={row} delay={i * 80} />
-            ))}
-          </View>
-        </Animated.View>
-      </ScrollView>
+      {/* New Habit Sheet */}
+      <NewHabitSheet
+        visible={showNewHabit}
+        onClose={() => setShowNewHabit(false)}
+      />
     </View>
   );
 }
@@ -317,11 +412,50 @@ export default function StatsScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#f2f0ec" },
-  scroll: { flex: 1 },
-  content: { paddingHorizontal: 16, gap: 10 },
 
-  headerRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-  headerTitle: { fontFamily: FontFamily.poppins.extraBold, fontSize: 22, color: "#1a1a1a" },
+  header: {
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    backgroundColor: "#f2f0ec",
+    gap: 12,
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontFamily: FontFamily.poppins.extraBold,
+    fontSize: 22,
+    color: "#1a1a1a",
+  },
+  addBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#18181b",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mainTabRow: {
+    flexDirection: "row",
+    backgroundColor: "#eceae5",
+    borderRadius: 99,
+    padding: 3,
+    alignSelf: "flex-start",
+  },
+  mainTab: {
+    borderRadius: 99,
+    paddingVertical: 6,
+    paddingHorizontal: 18,
+  },
+  mainTabActive: { backgroundColor: "#1a1a1a" },
+  mainTabInactive: { backgroundColor: "transparent" },
+  mainTabText: { fontFamily: FontFamily.inter.semiBold, fontSize: 13 },
+  mainTabTextActive: { color: "#fff" },
+  mainTabTextInactive: { color: "#666" },
+
+  analyticsContent: { paddingHorizontal: 16, gap: 10, paddingTop: 8 },
   filterRow: { flexDirection: "row", gap: 6 },
   filterPill: { borderRadius: 99, paddingVertical: 5, paddingHorizontal: 12 },
   filterPillActive: { backgroundColor: "#1a1a1a" },
@@ -358,13 +492,8 @@ const styles = StyleSheet.create({
   miniLabel: { fontFamily: FontFamily.inter.semiBold, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3 },
   miniValue: { fontFamily: FontFamily.poppins.extraBold, fontSize: 22, lineHeight: 28 },
   miniSub: { fontFamily: FontFamily.inter.regular, fontSize: 11 },
-
-  catCard: { backgroundColor: "#fff", borderRadius: 22, padding: 16, gap: 14 },
-  catList: { gap: 12 },
-  catRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  catDot: { width: 8, height: 8, borderRadius: 99 },
-  catName: { fontFamily: FontFamily.inter.regular, fontSize: 13, color: "#1a1a1a", width: 64 },
-  catBarTrack: { flex: 1, height: 4, backgroundColor: "#f0eeea", borderRadius: 99, overflow: "hidden" },
-  catBarFill: { height: 4, borderRadius: 99 },
-  catPercent: { fontFamily: FontFamily.inter.semiBold, fontSize: 12, color: "#888", width: 32, textAlign: "right" },
+  heatmapCard: { backgroundColor: "#fff", borderRadius: 22, padding: 16, gap: 14 },
+  heatmapList: { gap: 18 },
+  heatmapItem: { paddingBottom: 18 },
+  heatmapItemBorder: { borderBottomWidth: 0.5, borderBottomColor: "#eeebe6" },
 });

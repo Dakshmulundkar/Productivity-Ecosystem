@@ -38,8 +38,8 @@ export default function LoginScreen() {
       setError("");
       await login(email, password);
       router.replace("/(tabs)");
-    } catch {
-      setError("Login failed. Please try again.");
+    } catch (err: any) {
+      setError(err.message ?? "Login failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -51,8 +51,12 @@ export default function LoginScreen() {
       setError("");
       await loginWithGoogle();
       router.replace("/(tabs)");
-    } catch {
-      setError("Google login failed. Please try again.");
+    } catch (err: any) {
+      if (err.message?.includes("cancelled")) {
+        // User dismissed — no error needed
+        return;
+      }
+      setError(err.message ?? "Google login failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -67,9 +71,9 @@ export default function LoginScreen() {
       setIsLoading(true);
       setError("");
       await loginWithOTP(email);
-      router.push("/verify-otp");
-    } catch {
-      setError("Failed to send OTP. Please try again.");
+      router.push({ pathname: "/verify-otp", params: { email } });
+    } catch (err: any) {
+      setError(err.message ?? "Failed to send OTP. Please try again.");
     } finally {
       setIsLoading(false);
     }

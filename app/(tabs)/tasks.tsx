@@ -39,10 +39,20 @@ const MONTH_NAMES = [
   "January","February","March","April","May","June",
   "July","August","September","October","November","December",
 ];
-const DAY_NAMES_SHORT = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const DAY_NAMES_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function toISO(d: Date) { return d.toISOString().slice(0, 10); }
-function addDays(d: Date, n: number) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function toISO(d: Date): string { return d.toISOString().slice(0, 10); }
+function addDays(d: Date, n: number): Date { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+
+/** Format ISO date for display in the due pill, e.g. "Today", "Tomorrow", or "Jun 15" */
+function formatDueLabel(iso: string): string {
+  const todayISO = toISO(new Date());
+  const tomorrowISO = toISO(addDays(new Date(), 1));
+  if (iso === todayISO) return "Today";
+  if (iso === tomorrowISO) return "Tomorrow";
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
 
 const PRIORITY_STYLES: Record<Priority, { bg: string; text: string; label: string }> = {
   Low:    { bg: "#dcfce7", text: "#166534", label: "LOW" },
@@ -50,22 +60,18 @@ const PRIORITY_STYLES: Record<Priority, { bg: string; text: string; label: strin
   High:   { bg: "#fee2e2", text: "#991b1b", label: "HIGH" },
 };
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
-// (Initial tasks are seeded in the store — useTaskStore)
-
 // ─── Date strip ───────────────────────────────────────────────────────────────
 
 function buildDateStrip() {
   const today = new Date();
   const result = [];
   for (let i = -3; i <= 10; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + i);
+    const d = addDays(today, i);
     result.push({
       dayNum: d.getDate(),
       dayName: DAYS_OF_WEEK[d.getDay()],
       isToday: i === 0,
-      key: d.toISOString().slice(0, 10),
+      key: toISO(d),
     });
   }
   return result;
@@ -124,7 +130,7 @@ const TaskCard = memo(function TaskCard({
       <View style={styles.taskCardTop}>
         <View style={styles.duePill}>
           <CalendarDays size={10} color="#888" />
-          <Text style={styles.duePillText}>{task.dueDate}</Text>
+          <Text style={styles.duePillText}>{formatDueLabel(task.dueDateISO)}</Text>
         </View>
         <PriorityPill priority={task.priority} />
       </View>
@@ -218,7 +224,6 @@ const CalendarPicker = memo(function CalendarPicker({
 
   return (
     <View style={calStyles.container}>
-      {/* Month nav */}
       <View style={calStyles.header}>
         <Pressable onPress={prevMonth} hitSlop={12} style={calStyles.navBtn}>
           <ChevronLeft size={18} color="#fff" />
@@ -228,15 +233,11 @@ const CalendarPicker = memo(function CalendarPicker({
           <ChevronRight size={18} color="#fff" />
         </Pressable>
       </View>
-
-      {/* Day name headers */}
       <View style={calStyles.dayNames}>
         {DAY_NAMES_SHORT.map(n => (
           <Text key={n} style={calStyles.dayNameText}>{n}</Text>
         ))}
       </View>
-
-      {/* Grid */}
       <View style={calStyles.grid}>
         {cells.map(cell => {
           const isToday = cell.key === todayKey;
@@ -303,7 +304,6 @@ export default function TasksScreen() {
   const insets = useSafeAreaInsets();
   const scrollPaddingBottom = insets.bottom + 64 + 12 + 24;
 
-  // ── Store ──
   const tasks      = useTaskStore((s) => s.tasks);
   const addTask    = useTaskStore((s) => s.addTask);
   const toggleTask = useTaskStore((s) => s.toggleTask);
@@ -316,7 +316,8 @@ export default function TasksScreen() {
   const [formTitle, setFormTitle] = useState("");
   const [formDesc, setFormDesc] = useState("");
   const [formPriority, setFormPriority] = useState<Priority>("Medium");
-  const [formDueDate, setFormDueDate] = useState<"Today" | "Custom">("Today");
+  // "today" | "tomorrow" | "custom"
+  const [formDueDateMode, setFormDueDateMode] = useState<"today" | "tomorrow" | "custom">("today");
   const [customDate, setCustomDate] = useState<Date | null>(null);
   const [showCalPicker, setShowCalPicker] = useState(false);
 
@@ -333,7 +334,7 @@ export default function TasksScreen() {
   const openSheet = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setFormTitle(""); setFormDesc(""); setFormPriority("Medium");
-    setFormDueDate("Today"); setCustomDate(null); setShowCalPicker(false);
+    setFormDueDateMode("today"); setCustomDate(null); setShowCalPicker(false);
     setShowSheet(true);
   }, []);
 
@@ -344,26 +345,30 @@ export default function TasksScreen() {
       Alert.alert("Title required", "Please enter a task title.");
       return;
     }
-    if (formDueDate === "Custom" && !customDate) {
+    if (formDueDateMode === "custom" && !customDate) {
       Alert.alert("Date required", "Please pick a custom date.");
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const dueDateLabel =
-      formDueDate === "Today"
-        ? "Today"
-        : customDate
-        ? customDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-        : "Today";
+
+    let dueDateISO: string;
+    if (formDueDateMode === "today") {
+      dueDateISO = toISO(new Date());
+    } else if (formDueDateMode === "tomorrow") {
+      dueDateISO = toISO(addDays(new Date(), 1));
+    } else {
+      dueDateISO = toISO(customDate!);
+    }
+
     addTask({
       title: formTitle.trim(),
       description: formDesc.trim() || "No description",
       priority: formPriority,
-      dueDate: dueDateLabel,
+      dueDateISO,
       done: false,
     });
     setShowSheet(false);
-  }, [formTitle, formDesc, formPriority, formDueDate, customDate, addTask]);
+  }, [formTitle, formDesc, formPriority, formDueDateMode, customDate, addTask]);
 
   const handleSelectDate = useCallback((key: string) => {
     Haptics.selectionAsync();
@@ -374,23 +379,18 @@ export default function TasksScreen() {
 
   const pendingCount = tasks.filter((t) => !t.done).length;
 
-  // ── Filter tasks by selected date ──
-  const todayISO = toISO(new Date());
-  const tomorrowISO = toISO(addDays(new Date(), 1));
-
+  // Filter tasks by selected date — direct ISO comparison, no label shifting
   const visibleTasks = useMemo(() => {
-    return tasks.filter((t) => {
-      // Map dueDate label → ISO key for comparison
-      if (t.dueDate === "Today") return selectedDateKey === todayISO;
-      if (t.dueDate === "Tomorrow") return selectedDateKey === tomorrowISO;
-      // Custom date stored as "Jun 15" — parse and compare
-      try {
-        const parsed = new Date(`${t.dueDate} ${new Date().getFullYear()}`);
-        if (!isNaN(parsed.getTime())) return toISO(parsed) === selectedDateKey;
-      } catch { /* ignore */ }
-      return false;
-    });
-  }, [tasks, selectedDateKey, todayISO, tomorrowISO]);
+    return tasks.filter((t) => t.dueDateISO === selectedDateKey);
+  }, [tasks, selectedDateKey]);
+
+  // Label for the custom date button
+  const customDateLabel = useMemo(() => {
+    if (formDueDateMode === "custom" && customDate) {
+      return customDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    }
+    return "Custom";
+  }, [formDueDateMode, customDate]);
 
   return (
     <View style={styles.screen}>
@@ -428,7 +428,7 @@ export default function TasksScreen() {
           </ScrollView>
         </Animated.View>
 
-        {/* Task list — filtered by selected date */}
+        {/* Task list */}
         {visibleTasks.map((task, i) => (
           <Animated.View key={task.id} entering={FadeInDown.delay(120 + i * 60).duration(400)}>
             <TaskCard task={task} onToggle={handleToggle} onDelete={handleDelete} />
@@ -467,34 +467,35 @@ export default function TasksScreen() {
           />
           <Text style={styles.sheetLabel}>Priority</Text>
           <PrioritySelector selected={formPriority} onSelect={handleSelectPriority} />
-          {/* Due date toggle */}
+
           <Text style={styles.sheetLabel}>Due Date</Text>
           <View style={styles.prioritySelectorRow}>
-            {(["Today", "Custom"] as const).map((d) => (
-              <Pressable
-                key={d}
-                onPress={() => {
-                  setFormDueDate(d);
-                  if (d === "Custom") setShowCalPicker(true);
-                  else setShowCalPicker(false);
-                }}
-                style={[
-                  styles.prioritySelectorPill,
-                  formDueDate === d ? styles.dueDateActive : styles.prioritySelectorPillInactive,
-                ]}
-              >
-                <Text style={[
-                  styles.prioritySelectorText,
-                  formDueDate === d ? styles.dueDateActiveText : styles.prioritySelectorTextInactive,
-                ]}>
-                  {d === "Custom" && customDate
-                    ? customDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                    : d}
-                </Text>
-              </Pressable>
-            ))}
+            {(["today", "tomorrow", "custom"] as const).map((mode) => {
+              const isActive = formDueDateMode === mode;
+              const label = mode === "today" ? "Today" : mode === "tomorrow" ? "Tomorrow" : customDateLabel;
+              return (
+                <Pressable
+                  key={mode}
+                  onPress={() => {
+                    setFormDueDateMode(mode);
+                    setShowCalPicker(mode === "custom");
+                  }}
+                  style={[
+                    styles.prioritySelectorPill,
+                    isActive ? styles.dueDateActive : styles.prioritySelectorPillInactive,
+                  ]}
+                >
+                  <Text style={[
+                    styles.prioritySelectorText,
+                    isActive ? styles.dueDateActiveText : styles.prioritySelectorTextInactive,
+                  ]}>
+                    {label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
-          {/* Inline calendar picker */}
+
           {showCalPicker && (
             <CalendarPicker
               selectedDate={customDate}
@@ -504,6 +505,7 @@ export default function TasksScreen() {
               }}
             />
           )}
+
           <Pressable onPress={handleAddTask} style={styles.sheetSaveBtn}>
             <Text style={styles.sheetSaveBtnText}>Save Task</Text>
           </Pressable>
@@ -524,15 +526,15 @@ const styles = StyleSheet.create({
   headerLeft: { flex: 1, marginRight: 12 },
   headerTitle: { fontFamily: FontFamily.poppins.black, fontSize: 28, color: "#1a1a1a", letterSpacing: -0.5, lineHeight: 32 },
   headerSub: { fontFamily: FontFamily.inter.regular, fontSize: 12, color: "#888", marginTop: 4 },
-  newTaskBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#1a1a1a", borderRadius: 99, paddingVertical: 8, paddingHorizontal: 14, alignSelf: "flex-start", marginTop: 4 },
-  newTaskBtnText: { fontFamily: FontFamily.inter.semiBold, fontSize: 12, color: "#fff" },
+  newTaskBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#1a1a1a", borderRadius: 99, paddingVertical: 9, paddingHorizontal: 16, alignSelf: "flex-start", marginTop: 4 },
+  newTaskBtnText: { fontFamily: FontFamily.inter.semiBold, fontSize: 13, color: "#fff" },
 
   dateStrip: { paddingVertical: 4, gap: 6, paddingRight: 8 },
-  datePill: { alignItems: "center", justifyContent: "center", width: 44, paddingVertical: 8, borderRadius: 12, backgroundColor: "transparent" },
+  datePill: { alignItems: "center", justifyContent: "center", width: 54, paddingVertical: 8, borderRadius: 12, backgroundColor: "transparent" },
   datePillActive: { backgroundColor: "#1a1a1a" },
   datePillNum: { fontFamily: FontFamily.poppins.bold, fontSize: 20, color: "#1a1a1a", lineHeight: 24 },
   datePillNumActive: { color: "#fff" },
-  datePillName: { fontFamily: FontFamily.inter.regular, fontSize: 10, color: "#888" },
+  datePillName: { fontFamily: FontFamily.inter.regular, fontSize: 11, color: "#888" },
   datePillNameActive: { color: "#fff" },
 
   taskCard: { backgroundColor: "#fff", borderRadius: 20, padding: 16, gap: 8 },
@@ -564,8 +566,6 @@ const styles = StyleSheet.create({
   prioritySelectorPillInactive: { backgroundColor: "#2a2a2a" },
   prioritySelectorText: { fontFamily: FontFamily.inter.semiBold, fontSize: 13 },
   prioritySelectorTextInactive: { color: "#666" },
-  sheetDueRow: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#2a2a2a", borderRadius: 12, padding: 12 },
-  sheetDueText: { fontFamily: FontFamily.inter.regular, fontSize: 13, color: "#888", flex: 1 },
   sheetSaveBtn: { backgroundColor: "#b8a9f0", borderRadius: 14, padding: 16, alignItems: "center", marginTop: 4 },
   sheetSaveBtnText: { fontFamily: FontFamily.poppins.bold, fontSize: 14, color: "#1a1a1a" },
   dueDateActive: { backgroundColor: "#b8a9f0" },

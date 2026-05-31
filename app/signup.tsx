@@ -18,7 +18,7 @@ import { useColors } from "@/hooks/use-colors";
 
 export default function SignupScreen() {
   const router = useRouter();
-  const { signup } = useAuth();
+  const { signup, loginWithGoogle } = useAuth();
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -56,8 +56,25 @@ export default function SignupScreen() {
       setError("");
       await signup(email, password, name);
       router.replace("/(tabs)");
-    } catch {
-      setError("Signup failed. Please try again.");
+    } catch (err: any) {
+      setError(err.message ?? "Signup failed. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleSignup = async () => {
+    try {
+      setIsLoading(true);
+      setError("");
+      await loginWithGoogle();
+      router.replace("/(tabs)");
+    } catch (err: any) {
+      if (err.message?.includes("cancelled")) {
+        // User dismissed — no error needed
+        return;
+      }
+      setError(err.message ?? "Google sign-up failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -153,7 +170,7 @@ export default function SignupScreen() {
           label="Continue with Google"
           variant="secondary"
           size="lg"
-          onPress={() => {}}
+          onPress={handleGoogleSignup}
           disabled={isLoading}
           icon={<MaterialIcons name="login" size={20} color={colors.foreground} />}
         />

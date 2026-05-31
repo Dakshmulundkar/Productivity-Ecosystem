@@ -12,11 +12,13 @@ import { PremiumButton } from "@/components/premium-button";
 import { PremiumInput } from "@/components/premium-input";
 import { useRouter } from "expo-router";
 import { useState } from "react";
+import { useAuth } from "@/lib/auth-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/use-colors";
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
+  const { resetPassword } = useAuth();
   const colors = useColors();
   const insets = useSafeAreaInsets();
 
@@ -31,10 +33,10 @@ export default function ForgotPasswordScreen() {
     try {
       setIsLoading(true);
       setError("");
-      // TODO: wire up real password reset
+      await resetPassword(email);
       setSuccess(true);
-    } catch {
-      setError("Failed to send reset email. Please try again.");
+    } catch (err: any) {
+      setError(err.message ?? "Failed to send reset email. Please try again.");
     } finally {
       setIsLoading(false);
     }

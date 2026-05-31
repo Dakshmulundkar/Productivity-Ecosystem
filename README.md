@@ -1,96 +1,153 @@
-# Productivity Ecosystem
+# Vero — Personal Productivity App
 
-> A premium all-in-one productivity app built with React Native & Expo — designed to help you focus, track tasks, build habits, and own your day.
-
----
-
-## What is this?
-
-Productivity Ecosystem is a mobile-first personal productivity app that brings together everything you need to stay on top of your work and life — in one clean, fast, and beautiful interface. No subscriptions, no bloat, no distractions.
-
-Whether you're a student juggling deadlines, a developer managing sprints, or someone who just wants to build better habits — this app gives you the tools to do it.
+> A premium all-in-one productivity app built with React Native & Expo. Tasks, habits, calendar, focus timer, and analytics — all in one clean, fast interface.
 
 ---
 
-## How it makes your life easier
+## What is Vero?
 
-- **Stop context-switching.** Tasks, calendar, habits, and focus timer all live in one place. No more jumping between five different apps.
-- **See your day at a glance.** The home dashboard shows your productivity score, today's tasks, habit streaks, and focus time — all updated in real time.
-- **Stay in flow.** The built-in Pomodoro focus timer keeps you locked in, tracks your daily focus minutes, and lets you pause/resume without losing progress.
-- **Never miss a deadline.** The calendar supports day, week, and month views. Tap any date to add an event instantly.
-- **Build habits that stick.** Visual habit tracking with streaks and a heatmap shows your consistency over time — the kind of feedback that actually motivates.
-- **Know your priorities.** Every task has a priority level (Low / Medium / High) and a due date. Filter by Today, Tomorrow, or All so you always know what matters right now.
+Vero is a mobile-first personal productivity app that brings together everything you need to stay on top of your work and life. No subscriptions, no bloat, no distractions. Your data lives in Firebase and syncs across devices automatically.
 
 ---
 
 ## Features
 
 ### 🏠 Home Dashboard
-- Live productivity score with trend indicator
-- Today / Tomorrow / All task filter
-- Real-time focus time tracker
-- Habit streaks and activity heatmap
-- Pastel stat cards (focus time, tasks done, streak, habit rate)
+- Live productivity score (composite of tasks, focus time, and habit rate)
+- Today / Tomorrow / All task filter with real-time updates
+- Stat cards — focus time, tasks done, streak, habit rate
+- Floating focus bar that hides on scroll and reappears after 5 seconds of idle
+- Greeting adapts to time of day (Good morning / afternoon / evening / night)
+- Name auto-shrinks to fit without truncation
 
 ### ✅ Task Manager
-- Create tasks with title, description, priority, and due date
-- Date strip to browse tasks by day
-- Custom date picker (calendar UI) for future tasks
-- Toggle done / pending, delete tasks
-- Persistent storage via Zustand + AsyncStorage
+- Create tasks with title, description, priority (Low / Medium / High), and due date
+- Horizontal date strip to browse tasks by day
+- Inline calendar picker for custom dates
+- Toggle done / pending, swipe to delete
+- Synced to Firebase Firestore in real time
 
 ### 📅 Calendar
 - Day, Week, and Month views
-- Add events with title, time, location, and category (Work / Personal / Health / Social / Focus)
-- Tap any day in week or month view to add an event for that date
-- Color-coded event cards per category
+- Add events with title, time (scroll-wheel picker), location, category, and alarm
+- Events sorted chronologically by time (earliest first, All Day at top)
+- 30-minute reminder notification + on-time alarm notification per event
+- Pick a custom alarm sound from your device (Android)
+- Color-coded event cards per category (Work / Personal / Health / Social / Focus)
 
-### 📊 Stats
-- Weekly productivity chart
-- Focus time, tasks completed, habit rate breakdown
-- Animated bar charts
+### 📊 Stats & Analytics
+- Weekly task completion bar chart (animated)
+- Productivity score with Today / Weekly / Monthly filter
+- Focus time, tasks done, streak, and habit rate breakdown
+- Full habit heatmap (8-week overview per habit)
+
+### 🔁 Habits
+- Create habits with custom icon, color, and category
+- Today view — toggle completion with streak counter
+- Weekly view — Mon–Sun grid per habit
+- Overall view — 8-week heatmap per habit
+- Synced to Firebase Firestore
 
 ### 👤 Profile
-- User info display
-- Stats summary (tasks, streak, focus hours)
-- Settings and logout
+- Edit display name (saves to Firebase Auth + Firestore)
+- Task stats (done / active / total)
+- Notifications toggle (requests OS permission)
+- Rate the App, Help & Support (opens email), Privacy Policy
+- Secure logout
 
-### 🔐 Auth
-- Email + password login
-- OTP (magic link) login
-- Google Sign-In (Firebase ready)
-- Forgot password flow
+### 🔐 Authentication
+- Email + password login and signup
+- Forgot password (Firebase email reset)
+- Magic link / OTP login (Firebase email link)
+- Google Sign-In (requires native build — not available in Expo Go)
+- All auth handled by Firebase Authentication
 
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
+|---|---|
 | Framework | React Native 0.81 + Expo SDK 54 |
 | Navigation | Expo Router 6 (file-based) |
-| Styling | NativeWind 4 (Tailwind CSS) |
+| Styling | NativeWind 4 + StyleSheet |
 | Animations | React Native Reanimated 4 |
-| State | Zustand + AsyncStorage |
-| Backend | Express + tRPC |
-| Database | MySQL + Drizzle ORM |
+| State | Zustand + AsyncStorage (offline-first) |
+| Backend | Firebase (Auth + Firestore) |
+| Notifications | expo-notifications |
+| Audio | expo-av + expo-document-picker |
 | Language | TypeScript 5.9 |
+| Build | EAS Build |
 
 ---
 
-## Installation & Setup
+## Project Structure
+
+```
+app/
+  _layout.tsx              Root layout — fonts, providers, Firestore subscriptions
+  splash.tsx               Splash screen with auth redirect
+  onboarding.tsx           Feature walkthrough (4 screens)
+  login.tsx                Email/password + Google + OTP login
+  signup.tsx               Email/password + Google signup
+  forgot-password.tsx      Firebase password reset
+  verify-otp.tsx           Magic link instructions screen
+  privacy-policy.tsx       In-app privacy policy
+  oauth/callback.tsx       Firebase email link deep-link handler
+  (tabs)/
+    _layout.tsx            Custom floating tab bar
+    index.tsx              Home dashboard
+    tasks.tsx              Task manager
+    calendar.tsx           Calendar (day / week / month)
+    stats.tsx              Stats & analytics
+    profile.tsx            User profile & settings
+
+components/
+  dashboard/               Home dashboard cards (focus CTA, stat card, tasks card, ring)
+  habits/                  Habit components (row, heatmap, day squares, new sheet, etc.)
+  ui/                      Reusable primitives (filter pills, section header, tag badge, progress bar)
+  premium-button.tsx       Haptic-enabled button
+  premium-input.tsx        Themed text input
+  screen-container.tsx     Safe-area wrapper
+
+store/
+  useTaskStore.ts          Tasks — Zustand + Firestore sync
+  useHabitStore.ts         Habits + logs — Zustand + Firestore sync
+  useFocusStore.ts         Pomodoro timer — wall-clock based, survives background
+  useProfileStore.ts       User profile — Zustand + Firestore sync
+  useCalendarStore.ts      Calendar events — Zustand + AsyncStorage + notifications
+
+lib/
+  auth-context.tsx         Firebase Auth context (login, signup, Google, OTP, reset)
+  firebase.ts              Firebase app initialization
+  dashboard-utils.ts       Greeting, name split, initials helpers
+  theme-provider.tsx       Light/dark theme provider
+  utils.ts                 cn() utility (clsx + tailwind-merge)
+  _core/
+    theme.ts               Font family constants + color tokens
+    app-runtime.ts         Web iframe communication (preview environments)
+    auth.ts                Firebase token helpers
+
+constants/
+  theme.ts                 Color palette (light/dark)
+  oauth.ts                 App scheme + session key constants
+
+shared/
+  habitTypes.ts            Habit, HabitLog, NewHabitInput types
+  types.ts                 AppUser type
+```
+
+---
+
+## Getting Started
 
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) 18+
 - [pnpm](https://pnpm.io/) 9+ — `npm install -g pnpm`
-- [Expo CLI](https://docs.expo.dev/get-started/installation/) — `npm install -g expo-cli`
-- [Android Studio](https://developer.android.com/studio) (for Android builds) or [Xcode](https://developer.apple.com/xcode/) (for iOS)
-- [EAS CLI](https://docs.expo.dev/build/setup/) — `npm install -g eas-cli`
+- A [Firebase](https://firebase.google.com/) project with **Authentication** and **Firestore** enabled
 
----
-
-### 1. Clone the repository
+### 1. Clone
 
 ```bash
 git clone https://github.com/Dakshmulundkar/Productivity-Ecosystem.git
@@ -103,180 +160,108 @@ cd Productivity-Ecosystem
 pnpm install
 ```
 
-### 3. Set up environment variables
-
-Copy the example env file and fill in your values:
+### 3. Configure environment variables
 
 ```bash
 cp .env.example .env
 ```
 
-Minimum required variables:
+Fill in your Firebase credentials (from Firebase Console → Project Settings):
 
 ```env
-DATABASE_URL=mysql://user:password@host:4000/dbname
-JWT_SECRET=your_jwt_secret_here
-EXPO_PUBLIC_API_BASE_URL=http://localhost:3000
-```
-
-For Firebase Google Sign-In (optional for now):
-
-```env
-EXPO_PUBLIC_FIREBASE_API_KEY=your_key
+# Firebase
+EXPO_PUBLIC_FIREBASE_API_KEY=AIzaSy...
 EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=yourapp.firebaseapp.com
 EXPO_PUBLIC_FIREBASE_PROJECT_ID=yourapp
-EXPO_PUBLIC_FIREBASE_APP_ID=1:xxx:web:xxx
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=yourapp.appspot.com
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456789
+EXPO_PUBLIC_FIREBASE_APP_ID=1:123456789:web:abc123
+
+# Google Sign-In (from Firebase Console → Authentication → Sign-in method → Google)
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=xxx.apps.googleusercontent.com
+EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=xxx.apps.googleusercontent.com
+EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=xxx.apps.googleusercontent.com
+
+# App identity
+EXPO_PUBLIC_APP_BUNDLE_ID=com.yourcompany.yourapp
 ```
 
-### 4. Set up the database
+### 4. Firebase setup
 
-```bash
-pnpm db:push
+In the Firebase Console:
+
+1. **Authentication** → Enable Email/Password, Google, and Email Link sign-in methods
+2. **Firestore** → Create a database in production mode, then add security rules:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
 ```
 
 ### 5. Run in development
-
-Start both the API server and the Expo dev server:
 
 ```bash
 pnpm dev
 ```
 
-Or run them separately:
-
-```bash
-# API server only
-pnpm dev:server
-
-# Expo Metro bundler only
-pnpm dev:metro
-```
-
-Scan the QR code with the **Expo Go** app on your phone, or press `a` for Android emulator / `i` for iOS simulator.
+> **Note:** Google Sign-In requires a native build and will not work in Expo Go. All other features work in Expo Go.
 
 ---
 
-## Building the APK (Android)
+## Building the APK
 
-### Option A — EAS Build (recommended, cloud build)
-
-Install EAS CLI:
+### EAS Build (recommended)
 
 ```bash
 npm install -g eas-cli
-```
-
-Login to your Expo account (create one free at [expo.dev](https://expo.dev) if needed):
-
-```bash
 eas login
-```
-
-Configure EAS for this project (first time only):
-
-```bash
-eas build:configure
-```
-
-Build the APK:
-
-```bash
 eas build --platform android --profile preview
 ```
 
-Your APK download link will appear in the terminal once the build completes.
+Your APK download link appears in the terminal when the build completes.
 
-### Option B — Local build
-
-Generate the native Android project:
+### Local build
 
 ```bash
 npx expo prebuild --platform android
-```
-
-Build debug APK (faster, for testing):
-
-```bash
-cd android && ./gradlew assembleDebug
-```
-
-Build release APK:
-
-```bash
 cd android && ./gradlew assembleRelease
 ```
 
-The release APK will be at:
-```
-android/app/build/outputs/apk/release/app-release.apk
-```
-
-> **Note:** For a release build you'll need a keystore. See [Expo signing docs](https://docs.expo.dev/app-signing/local-credentials/).
+Output: `android/app/build/outputs/apk/release/app-release.apk`
 
 ---
 
-## Project Structure
+## Important Notes
 
-```
-app/
-  _layout.tsx          ← Root layout with providers
-  (tabs)/
-    index.tsx          ← Home dashboard
-    tasks.tsx          ← Task manager
-    calendar.tsx       ← Calendar
-    stats.tsx          ← Stats & analytics
-    profile.tsx        ← User profile
-  login.tsx            ← Login screen
-  signup.tsx           ← Sign up screen
-  onboarding.tsx       ← Onboarding flow
-  splash.tsx           ← Splash screen
-components/
-  dashboard/           ← Dashboard-specific cards
-  ui/                  ← Reusable UI primitives
-  premium-button.tsx   ← Button component
-  premium-input.tsx    ← Input component
-store/
-  useTaskStore.ts      ← Task state (Zustand)
-  useFocusStore.ts     ← Focus timer state
-  useProfileStore.ts   ← Profile state
-server/
-  routers.ts           ← tRPC API routes
-  db.ts                ← Database queries
-  storage.ts           ← File storage helpers
-  _core/               ← Server infrastructure
-drizzle/
-  schema.ts            ← Database schema
-constants/
-  theme.ts             ← Theme tokens
-theme.config.js        ← Color palette config
-```
+### Google Sign-In
+Google Sign-In uses `@react-native-google-signin/google-signin` which is a native module. It requires a custom dev build (EAS Build or `expo prebuild`). It will crash in Expo Go — this is handled gracefully with a fallback error message.
+
+### Notifications & Alarms
+Calendar event notifications use `expo-notifications`. On iOS, custom alarm sounds must be bundled with the app — runtime-picked audio files work on Android only. The 30-minute reminder and on-time alarm are scheduled automatically when you add an event.
+
+### Offline Support
+Tasks, habits, and calendar events are stored locally via Zustand + AsyncStorage and sync to Firestore when online. The app is fully functional offline.
+
+### Focus Timer
+The Pomodoro timer uses wall-clock timestamps (`Date.now()`) instead of tick counting, so it keeps running accurately even when the app is backgrounded or the device sleeps.
 
 ---
 
 ## License
 
-MIT License
+MIT License — Copyright (c) 2025 Daksh Mulundkar
 
-Copyright (c) 2025 Daksh Mulundkar
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ---
 

@@ -30,7 +30,7 @@ export default function SplashScreen() {
           source={require("@/assets/images/icon.png")}
           className="w-24 h-24 rounded-2xl"
         />
-        <Text className="text-3xl font-bold text-foreground">Productivity</Text>
+        <Text className="text-3xl font-bold text-foreground">Vero</Text>
         <Text className="text-sm text-muted">Your personal productivity hub</Text>
       </View>
     </ScreenContainer>

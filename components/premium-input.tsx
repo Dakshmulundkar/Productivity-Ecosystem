@@ -68,6 +68,7 @@ export function PremiumInput({
           variantClasses[variant],
           error && "border-error"
         )}
+        style={{ backgroundColor: "#ffffff" }}
       >
         {icon}
         <TextInput
@@ -77,8 +78,8 @@ export function PremiumInput({
             size === "md" && "text-base",
             size === "lg" && "text-lg"
           )}
-          style={{ color: colors.foreground, flex: 1 }}
-          placeholderTextColor={colors.muted}
+          style={{ color: "#1a1a1a", flex: 1 }}
+          placeholderTextColor="#999999"
           onFocus={handleFocus}
           onBlur={handleBlur}
           {...props}

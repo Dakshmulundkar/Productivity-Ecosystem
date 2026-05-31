@@ -65,9 +65,15 @@ Thumbs.db
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
 
+# Firebase
+.firebase/
+firebase-debug.log
+firestore-debug.log
+.firebaserc
+
 # Markdown files (except README.md)
 app_prompt_v2.md
 design.md
-server/README.md
 todo.md
+habits_feature_prompt.md
 .kiro/

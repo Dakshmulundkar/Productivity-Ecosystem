@@ -2,8 +2,12 @@
 import "./scripts/load-env.js";
 import type { ExpoConfig } from "expo/config";
 
-// Bundle ID for the app
-const rawBundleId = "com.dakshmulundkarsprojects.vero";
+// Bundle ID — read from env, never hardcoded
+const rawBundleId = process.env.EXPO_PUBLIC_APP_BUNDLE_ID ?? "";
+if (!rawBundleId) {
+  throw new Error("EXPO_PUBLIC_APP_BUNDLE_ID is not set. Add it to your .env file.");
+}
+
 const bundleId =
   rawBundleId
     .replace(/[-_]/g, ".") // Replace hyphens/underscores with dots
@@ -16,17 +20,15 @@ const bundleId =
       // Android requires each segment to start with a letter
       return /^[a-zA-Z]/.test(segment) ? segment : "x" + segment;
     })
-    .join(".") || "com.dakshmulundkarsprojects.app";
+    .join(".");
+
 // Deep link scheme derived from bundle ID last segment
 const schemeSegment = bundleId.split(".").pop() ?? "app";
 const schemeFromBundleId = `daksh${schemeSegment}`;
 
 const env = {
-  // App branding - update these values directly (do not use env vars)
   appName: "Vero",
   appSlug: "vero",
-  // S3 URL of the app logo - set this to the URL returned by generate_image when creating custom logo
-  // Leave empty to use the default icon from assets/images/icon.png
   logoUrl: "",
   scheme: schemeFromBundleId,
   iosBundleId: bundleId,
@@ -81,6 +83,29 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    "expo-av",
+    [
+      "expo-notifications",
+      {
+        icon: "./assets/images/icon.png",
+        color: "#b8a9f0",
+        sounds: [],
+      },
+    ],
+    [
+      "@react-native-google-signin/google-signin",
+      {
+        // iosUrlScheme must be "com.googleusercontent.apps.<reversed-client-id>"
+        // The iOS client ID format is: <project-number>-<hash>.apps.googleusercontent.com
+        // The reversed scheme strips the ".apps.googleusercontent.com" suffix
+        iosUrlScheme: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
+          ? `com.googleusercontent.apps.${
+              process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID
+                .replace(".apps.googleusercontent.com", "")
+            }`
+          : "",
+      },
+    ],
     [
       "expo-splash-screen",
       {
@@ -109,6 +134,11 @@ const config: ExpoConfig = {
   experiments: {
     typedRoutes: true,
     reactCompiler: true,
+  },
+  extra: {
+    eas: {
+      projectId: "9b1b1ca9-70c9-4fb3-9b9e-5b3e3c42a8e2",
+    },
   },
 };
 

@@ -1,7 +1,10 @@
 /**
- * Unified type exports
- * Import shared types from this single entry point.
+ * Shared app types — Firebase-based.
  */
 
-export type * from "../drizzle/schema";
-export * from "./_core/errors";
+export interface AppUser {
+  id: string;       // Firebase UID
+  email: string;
+  name?: string | null;
+  avatar?: string | null;
+}

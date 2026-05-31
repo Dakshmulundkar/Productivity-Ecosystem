@@ -6,7 +6,7 @@ import Animated, {
   withSequence,
   withSpring,
 } from "react-native-reanimated";
-import { Check } from "lucide-react-native";
+import { Check, CheckCircle2 } from "lucide-react-native";
 import { TagBadge, TagType } from "@/components/ui/tag-badge";
 import { FontFamily } from "@/lib/_core/theme";
 
@@ -93,15 +93,22 @@ export const TasksCard = memo(function TasksCard({
         </View>
       </View>
 
-      {/* Task rows */}
-      {tasks.map((task, index) => (
-        <TaskRow
-          key={task.id}
-          task={task}
-          isLast={index === tasks.length - 1}
-          onToggle={onToggle}
-        />
-      ))}
+      {/* Empty state */}
+      {tasks.length === 0 ? (
+        <View style={styles.emptyState}>
+          <CheckCircle2 size={32} color="#e0dbd4" />
+          <Text style={styles.emptyText}>No tasks for this period</Text>
+        </View>
+      ) : (
+        tasks.map((task, index) => (
+          <TaskRow
+            key={task.id}
+            task={task}
+            isLast={index === tasks.length - 1}
+            onToggle={onToggle}
+          />
+        ))
+      )}
     </View>
   );
 });
@@ -163,6 +170,16 @@ const styles = StyleSheet.create({
   },
   info: {
     flex: 1,
+  },
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: 28,
+    gap: 8,
+  },
+  emptyText: {
+    fontFamily: FontFamily.inter.regular,
+    fontSize: 13,
+    color: "#bbb",
   },
   title: {
     fontFamily: FontFamily.inter.semiBold,

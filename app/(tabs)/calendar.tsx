@@ -1,4 +1,4 @@
-import React, { useState, useCallback, memo } from "react";
+import React, { useState, useCallback, useRef, memo } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,9 @@ import {
   Modal,
   TextInput,
   Alert,
+  FlatList,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from "react-native";
 import Animated, {
   FadeInDown,
@@ -18,22 +21,26 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { ChevronLeft, ChevronRight, MapPin, Plus, Calendar } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, MapPin, Plus, Calendar, Clock } from "lucide-react-native";
 import { FontFamily } from "@/lib/_core/theme";
+import { useCalendarStore, type CalEvent, type EventCategory } from "@/store/useCalendarStore";
+import * as DocumentPicker from "expo-document-picker";
+import * as Notifications from "expo-notifications";
+
+// Request notification permissions on mount
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ViewMode = "day" | "week" | "month";
-type EventCategory = "Work" | "Personal" | "Health" | "Social" | "Focus";
-
-interface CalEvent {
-  id: string;
-  title: string;
-  time: string;
-  location: string;
-  category: EventCategory;
-  date: string; // YYYY-MM-DD
-}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -62,7 +69,7 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
-const DAY_NAMES_SHORT = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const DAY_NAMES_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const FULL_DAY_NAMES = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
@@ -78,18 +85,131 @@ function addDays(d: Date, n: number): Date {
   return r;
 }
 
-// ─── Mock events ─────────────────────────────────────────────────────────────
+/**
+ * Convert a time string like "09:30 AM" or "All day" to minutes since midnight.
+ * "All day" events sort to the very beginning (0).
+ */
+function timeToMinutes(timeStr: string): number {
+  if (!timeStr || timeStr === "All day") return 0;
+  const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return 0;
+  let hour = parseInt(match[1], 10);
+  const minute = parseInt(match[2], 10);
+  const period = match[3].toUpperCase();
+  if (period === "PM" && hour !== 12) hour += 12;
+  if (period === "AM" && hour === 12) hour = 0;
+  return hour * 60 + minute;
+}
 
-const _today = new Date();
-const _tomorrow = addDays(_today, 1);
+/** Sort events chronologically by their time string */
+function sortByTime(events: CalEvent[]): CalEvent[] {
+  return [...events].sort((a, b) => timeToMinutes(a.time) - timeToMinutes(b.time));
+}
 
-let MOCK_EVENTS: CalEvent[] = [
-  { id: "1", title: "Team Standup",    time: "9:00 AM",  location: "Zoom",           category: "Work",     date: toISO(_today)    },
-  { id: "2", title: "Design Review",   time: "2:00 PM",  location: "Office",         category: "Work",     date: toISO(_today)    },
-  { id: "3", title: "Gym Session",     time: "6:00 AM",  location: "Fitness Center", category: "Health",   date: toISO(_today)    },
-  { id: "4", title: "Lunch with Alex", time: "12:30 PM", location: "Cafe",           category: "Social",   date: toISO(_tomorrow) },
-  { id: "5", title: "Deep Work Block", time: "10:00 AM", location: "Home",           category: "Focus",    date: toISO(_tomorrow) },
-];
+// ─── Time Picker Wheel ────────────────────────────────────────────────────────
+
+const ITEM_HEIGHT = 44;
+const VISIBLE_ITEMS = 3; // items visible at once (center = selected)
+
+const HOURS   = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+const MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+const PERIODS = ["AM", "PM"];
+
+interface WheelColumnProps {
+  items: string[];
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+  width: number;
+}
+
+const WheelColumn = memo(function WheelColumn({
+  items, selectedIndex, onSelect, width,
+}: WheelColumnProps) {
+  const listRef = useRef<FlatList>(null);
+  const isScrolling = useRef(false);
+
+  // Scroll to selected on mount / external change
+  const scrollToIndex = useCallback((index: number, animated = true) => {
+    listRef.current?.scrollToOffset({ offset: index * ITEM_HEIGHT, animated });
+  }, []);
+
+  const handleScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offset = e.nativeEvent.contentOffset.y;
+    const index = Math.round(offset / ITEM_HEIGHT);
+    const clamped = Math.max(0, Math.min(index, items.length - 1));
+    scrollToIndex(clamped);
+    if (clamped !== selectedIndex) {
+      Haptics.selectionAsync();
+      onSelect(clamped);
+    }
+    isScrolling.current = false;
+  }, [items.length, selectedIndex, onSelect, scrollToIndex]);
+
+  return (
+    <View style={[wheelStyles.column, { width }]}>
+      {/* Selection highlight */}
+      <View style={wheelStyles.selectionBar} pointerEvents="none" />
+
+      <FlatList
+        ref={listRef}
+        data={items}
+        keyExtractor={(item) => item}
+        showsVerticalScrollIndicator={false}
+        snapToInterval={ITEM_HEIGHT}
+        decelerationRate="fast"
+        onMomentumScrollEnd={handleScrollEnd}
+        onScrollEndDrag={handleScrollEnd}
+        onLayout={() => scrollToIndex(selectedIndex, false)}
+        contentContainerStyle={{
+          paddingVertical: ITEM_HEIGHT * Math.floor(VISIBLE_ITEMS / 2),
+        }}
+        getItemLayout={(_, index) => ({
+          length: ITEM_HEIGHT,
+          offset: ITEM_HEIGHT * index,
+          index,
+        })}
+        renderItem={({ item, index }) => {
+          const isSelected = index === selectedIndex;
+          return (
+            <Pressable
+              style={wheelStyles.item}
+              onPress={() => { scrollToIndex(index); onSelect(index); Haptics.selectionAsync(); }}
+            >
+              <Text style={[
+                wheelStyles.itemText,
+                isSelected ? wheelStyles.itemTextSelected : wheelStyles.itemTextDim,
+              ]}>
+                {item}
+              </Text>
+            </Pressable>
+          );
+        }}
+      />
+    </View>
+  );
+});
+
+interface TimePickerProps {
+  hour: number;       // 0–11 (index into HOURS)
+  minute: number;     // 0–59 (index into MINUTES)
+  period: number;     // 0=AM, 1=PM
+  onHourChange: (i: number) => void;
+  onMinuteChange: (i: number) => void;
+  onPeriodChange: (i: number) => void;
+}
+
+const TimePicker = memo(function TimePicker({
+  hour, minute, period, onHourChange, onMinuteChange, onPeriodChange,
+}: TimePickerProps) {
+  return (
+    <View style={wheelStyles.container}>
+      <WheelColumn items={HOURS}   selectedIndex={hour}   onSelect={onHourChange}   width={56} />
+      <Text style={wheelStyles.colon}>:</Text>
+      <WheelColumn items={MINUTES} selectedIndex={minute} onSelect={onMinuteChange} width={56} />
+      <WheelColumn items={PERIODS} selectedIndex={period} onSelect={onPeriodChange} width={52} />
+    </View>
+  );
+});
 
 // ─── View Toggle ─────────────────────────────────────────────────────────────
 
@@ -157,7 +277,7 @@ const DayView = memo(function DayView({
   const dayNum = selectedDate.getDate();
   const monthName = MONTH_NAMES[selectedDate.getMonth()];
   const dateKey = toISO(selectedDate);
-  const dayEvents = events.filter((e) => e.date === dateKey);
+  const dayEvents = sortByTime(events.filter((e) => e.date === dateKey));
 
   return (
     <View style={styles.dayViewContainer}>
@@ -212,7 +332,7 @@ const WeekView = memo(function WeekView({
       {WEEK_DAYS_ABBR.map((abbr, i) => {
         const d = addDays(monday, i);
         const dateKey = toISO(d);
-        const dayEvents = events.filter((e) => e.date === dateKey);
+        const dayEvents = sortByTime(events.filter((e) => e.date === dateKey));
         const color = DAY_COLORS[i];
         return (
           <Animated.View
@@ -334,16 +454,25 @@ export default function CalendarScreen() {
   const insets = useSafeAreaInsets();
   const scrollPaddingBottom = insets.bottom + 64 + 12 + 24;
 
+  // ── Persistent event store — no fake data, survives app restarts ──
+  const events   = useCalendarStore((s) => s.events);
+  const addEvent = useCalendarStore((s) => s.addEvent);
+
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [events, setEvents] = useState<CalEvent[]>(MOCK_EVENTS);
 
   // Add event sheet state
   const [showSheet, setShowSheet] = useState(false);
   const [formTitle, setFormTitle] = useState("");
-  const [formTime, setFormTime] = useState("");
+  const [formHour, setFormHour]     = useState(8);   // index 0–11 → "01"–"12"
+  const [formMinute, setFormMinute] = useState(0);   // index 0–59
+  const [formPeriod, setFormPeriod] = useState(0);   // 0=AM, 1=PM
+  const [formAllDay, setFormAllDay] = useState(false);
   const [formLocation, setFormLocation] = useState("");
   const [formCategory, setFormCategory] = useState<EventCategory>("Work");
+  const [formAlarmEnabled, setFormAlarmEnabled] = useState(true);
+  const [formAlarmSoundUri, setFormAlarmSoundUri] = useState<string | undefined>(undefined);
+  const [formAlarmSoundName, setFormAlarmSoundName] = useState("Default");
 
   const fabScale = useSharedValue(1);
   const fabStyle = useAnimatedStyle(() => ({ transform: [{ scale: fabScale.value }] }));
@@ -370,8 +499,29 @@ export default function CalendarScreen() {
 
   const openSheet = useCallback((date: Date) => {
     setSelectedDate(date);
-    setFormTitle(""); setFormTime(""); setFormLocation(""); setFormCategory("Work");
+    setFormTitle("");
+    setFormHour(8); setFormMinute(0); setFormPeriod(0); setFormAllDay(false);
+    setFormLocation(""); setFormCategory("Work");
+    setFormAlarmEnabled(true); setFormAlarmSoundUri(undefined); setFormAlarmSoundName("Default");
     setShowSheet(true);
+  }, []);
+
+  // ── Pick alarm sound from device ──
+  const handlePickSound = useCallback(async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "audio/*",
+        copyToCacheDirectory: true,
+      });
+      if (!result.canceled && result.assets?.[0]) {
+        const asset = result.assets[0];
+        setFormAlarmSoundUri(asset.uri);
+        setFormAlarmSoundName(asset.name ?? "Custom sound");
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch {
+      // User cancelled or picker unavailable
+    }
   }, []);
 
   const handleFabPress = useCallback(() => {
@@ -386,25 +536,41 @@ export default function CalendarScreen() {
     openSheet(date);
   }, [openSheet]);
 
-  const handleAddEvent = useCallback(() => {
+  const handleAddEvent = useCallback(async () => {
     if (!formTitle.trim()) {
       Alert.alert("Title required", "Please enter an event title.");
       return;
     }
+
+    // Request notification permission if alarm is enabled
+    if (formAlarmEnabled) {
+      const { status } = await Notifications.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Notifications disabled",
+          "Enable notifications in Settings to receive event reminders.",
+          [{ text: "OK" }],
+        );
+      }
+    }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    const newEvent: CalEvent = {
-      id: Date.now().toString(),
+    const timeStr = formAllDay
+      ? "All day"
+      : `${HOURS[formHour]}:${MINUTES[formMinute]} ${PERIODS[formPeriod]}`;
+
+    await addEvent({
       title: formTitle.trim(),
-      time: formTime.trim() || "All day",
+      time: timeStr,
       location: formLocation.trim() || "—",
       category: formCategory,
       date: toISO(selectedDate),
-    };
-    setEvents(prev => [...prev, newEvent]);
-    // keep MOCK_EVENTS in sync so sub-components see the update
-    MOCK_EVENTS = [...MOCK_EVENTS, newEvent];
+      alarmEnabled: formAlarmEnabled,
+      alarmSoundUri: formAlarmEnabled ? formAlarmSoundUri : undefined,
+    });
     setShowSheet(false);
-  }, [formTitle, formTime, formLocation, formCategory, selectedDate]);
+  }, [formTitle, formHour, formMinute, formPeriod, formAllDay, formLocation, formCategory,
+      selectedDate, formAlarmEnabled, formAlarmSoundUri, addEvent]);
 
   const handleViewChange = useCallback((v: ViewMode) => setViewMode(v), []);
 
@@ -459,13 +625,33 @@ export default function CalendarScreen() {
             value={formTitle}
             onChangeText={setFormTitle}
           />
-          <TextInput
-            style={sheetStyles.input}
-            placeholder="Time (e.g. 9:00 AM)"
-            placeholderTextColor="#555"
-            value={formTime}
-            onChangeText={setFormTime}
-          />
+
+          {/* Time picker */}
+          <View style={sheetStyles.timeSection}>
+            <View style={sheetStyles.timeLabelRow}>
+              <Clock size={14} color="#888" />
+              <Text style={sheetStyles.label}>TIME</Text>
+              <Pressable
+                onPress={() => { Haptics.selectionAsync(); setFormAllDay(v => !v); }}
+                style={[sheetStyles.allDayPill, formAllDay && sheetStyles.allDayPillActive]}
+              >
+                <Text style={[sheetStyles.allDayText, formAllDay && sheetStyles.allDayTextActive]}>
+                  All day
+                </Text>
+              </Pressable>
+            </View>
+            {!formAllDay && (
+              <TimePicker
+                hour={formHour}
+                minute={formMinute}
+                period={formPeriod}
+                onHourChange={setFormHour}
+                onMinuteChange={setFormMinute}
+                onPeriodChange={setFormPeriod}
+              />
+            )}
+          </View>
+
           <TextInput
             style={sheetStyles.input}
             placeholder="Location (optional)"
@@ -495,6 +681,42 @@ export default function CalendarScreen() {
               );
             })}
           </ScrollView>
+
+          {/* ── Alarm section ── */}
+          <View style={sheetStyles.alarmRow}>
+            <View style={sheetStyles.alarmLeft}>
+              <Text style={sheetStyles.alarmIcon}>🔔</Text>
+              <View>
+                <Text style={sheetStyles.alarmTitle}>Alarm</Text>
+                <Text style={sheetStyles.alarmSub}>
+                  {formAlarmEnabled
+                    ? formAllDay
+                      ? "Reminder at 9:00 AM"
+                      : "30 min before + at event time"
+                    : "No alarm"}
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              onPress={() => { Haptics.selectionAsync(); setFormAlarmEnabled(v => !v); }}
+              style={[sheetStyles.alarmToggle, formAlarmEnabled && sheetStyles.alarmToggleOn]}
+            >
+              <Text style={[sheetStyles.alarmToggleText, formAlarmEnabled && sheetStyles.alarmToggleTextOn]}>
+                {formAlarmEnabled ? "On" : "Off"}
+              </Text>
+            </Pressable>
+          </View>
+
+          {/* Sound picker — only shown when alarm is on */}
+          {formAlarmEnabled && (
+            <Pressable onPress={handlePickSound} style={sheetStyles.soundRow}>
+              <Text style={sheetStyles.soundLabel}>🎵  Alarm sound</Text>
+              <View style={sheetStyles.soundRight}>
+                <Text style={sheetStyles.soundName} numberOfLines={1}>{formAlarmSoundName}</Text>
+                <Text style={sheetStyles.soundChevron}>›</Text>
+              </View>
+            </Pressable>
+          )}
 
           <Pressable onPress={handleAddEvent} style={sheetStyles.saveBtn}>
             <Text style={sheetStyles.saveBtnText}>Add Event</Text>
@@ -552,7 +774,7 @@ const styles = StyleSheet.create({
   monthHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   monthTitle: { fontFamily: FontFamily.poppins.bold, fontSize: 16, color: "#1a1a1a" },
   monthDayNames: { flexDirection: "row" },
-  monthDayNameText: { flex: 1, textAlign: "center", fontFamily: FontFamily.inter.semiBold, fontSize: 11, color: "#aaa" },
+  monthDayNameText: { flex: 1, textAlign: "center", fontFamily: FontFamily.inter.semiBold, fontSize: 12, color: "#aaa" },
   monthGrid: { flexDirection: "row", flexWrap: "wrap" },
   monthCell: { width: `${100 / 7}%` as any, alignItems: "center", paddingVertical: 4, gap: 2 },
   monthDayCircle: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
@@ -583,4 +805,108 @@ const sheetStyles = StyleSheet.create({
   categoryTextInactive: { color: "#666" },
   saveBtn: { backgroundColor: "#b8a9f0", borderRadius: 14, padding: 16, alignItems: "center", marginTop: 4 },
   saveBtnText: { fontFamily: FontFamily.poppins.bold, fontSize: 14, color: "#1a1a1a" },
+
+  // Time section
+  timeSection: { gap: 8 },
+  timeLabelRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  allDayPill: {
+    marginLeft: "auto",
+    borderRadius: 99,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    backgroundColor: "#2a2a2a",
+  },
+  allDayPillActive: { backgroundColor: "#b8a9f0" },
+  allDayText: { fontFamily: FontFamily.inter.semiBold, fontSize: 12, color: "#666" },
+  allDayTextActive: { color: "#1a1a1a" },
+
+  // Alarm section
+  alarmRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#242424",
+    borderRadius: 14,
+    padding: 14,
+  },
+  alarmLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  alarmIcon: { fontSize: 20 },
+  alarmTitle: { fontFamily: FontFamily.inter.semiBold, fontSize: 14, color: "#fff" },
+  alarmSub: { fontFamily: FontFamily.inter.regular, fontSize: 11, color: "#666", marginTop: 2 },
+  alarmToggle: {
+    borderRadius: 99,
+    paddingVertical: 5,
+    paddingHorizontal: 14,
+    backgroundColor: "#333",
+  },
+  alarmToggleOn: { backgroundColor: "#b8a9f0" },
+  alarmToggleText: { fontFamily: FontFamily.inter.bold, fontSize: 12, color: "#666" },
+  alarmToggleTextOn: { color: "#1a1a1a" },
+
+  soundRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#242424",
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  soundLabel: { fontFamily: FontFamily.inter.regular, fontSize: 13, color: "#aaa" },
+  soundRight: { flexDirection: "row", alignItems: "center", gap: 4, flex: 1, justifyContent: "flex-end" },
+  soundName: { fontFamily: FontFamily.inter.semiBold, fontSize: 13, color: "#b8a9f0", maxWidth: 160 },
+  soundChevron: { fontSize: 18, color: "#555", lineHeight: 22 },
+});
+
+// ─── Wheel Styles ─────────────────────────────────────────────────────────────
+
+const wheelStyles = StyleSheet.create({
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#242424",
+    borderRadius: 16,
+    height: ITEM_HEIGHT * VISIBLE_ITEMS,
+    overflow: "hidden",
+    gap: 0,
+  },
+  column: {
+    height: ITEM_HEIGHT * VISIBLE_ITEMS,
+    overflow: "hidden",
+  },
+  selectionBar: {
+    position: "absolute",
+    top: ITEM_HEIGHT,
+    left: 0,
+    right: 0,
+    height: ITEM_HEIGHT,
+    backgroundColor: "rgba(184,169,240,0.12)",
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "rgba(184,169,240,0.25)",
+    zIndex: 1,
+  },
+  item: {
+    height: ITEM_HEIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  itemText: {
+    fontFamily: FontFamily.poppins.bold,
+    fontSize: 22,
+  },
+  itemTextSelected: {
+    color: "#ffffff",
+  },
+  itemTextDim: {
+    color: "#444",
+  },
+  colon: {
+    fontFamily: FontFamily.poppins.bold,
+    fontSize: 26,
+    color: "#fff",
+    marginHorizontal: 2,
+    marginBottom: 2,
+  },
 });

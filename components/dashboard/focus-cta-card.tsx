@@ -53,34 +53,27 @@ export const FocusCTACard = memo(function FocusCTACard({
         onPressOut={handlePressOut}
         style={styles.inner}
       >
-        {/* Icon box */}
-        <View style={styles.iconBox}>
-          {isRunning
-            ? <Pause size={22} color="#1a1a1a" fill="#1a1a1a" />
-            : <Play  size={22} color="#1a1a1a" fill="#1a1a1a" />}
-        </View>
-
-        {/* Text */}
+        {/* Text — takes all available space */}
         <View style={styles.textBlock}>
           <Text style={styles.title} numberOfLines={1}>{label}</Text>
           <Text style={styles.subtitle}>{subtitle}</Text>
         </View>
 
-        {/* Buttons */}
+        {/* Right-side controls */}
         <View style={styles.btnRow}>
-          {/* Play / Pause */}
-          <Pressable onPress={handleStart} style={styles.startBtn} hitSlop={8}>
-            <Text style={styles.startBtnText}>
-              {isRunning ? "Pause" : isPaused ? "Resume" : "Start"}
-            </Text>
-          </Pressable>
-
           {/* Stop — only visible when active */}
           {active && onStop ? (
             <Pressable onPress={handleStop} style={styles.stopBtn} hitSlop={8}>
               <Square size={14} color="#888" fill="#888" />
             </Pressable>
           ) : null}
+
+          {/* Play / Pause icon button */}
+          <Pressable onPress={handleStart} style={styles.playBtn} hitSlop={8}>
+            {isRunning
+              ? <Pause size={17} color="#1a1a1a" fill="#1a1a1a" />
+              : <Play  size={17} color="#1a1a1a" fill="#1a1a1a" />}
+          </Pressable>
         </View>
       </Pressable>
     </Animated.View>
@@ -96,52 +89,45 @@ const styles = StyleSheet.create({
   inner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    padding: 16,
-  },
-  iconBox: {
-    width: 46,
-    height: 46,
-    borderRadius: 16,
-    backgroundColor: "#b8a9f0",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+    gap: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
   },
   textBlock: {
     flex: 1,
+    alignItems: "center",
   },
   title: {
     fontFamily: FontFamily.inter.bold,
-    fontSize: 14,
+    fontSize: 13,
     color: "#ffffff",
+    textAlign: "center",
   },
   subtitle: {
     fontFamily: FontFamily.inter.regular,
     fontSize: 11,
     color: "#666666",
-    marginTop: 2,
+    marginTop: 1,
+    textAlign: "center",
   },
   btnRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 7,
   },
-  startBtn: {
+  playBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
     backgroundColor: "#b8a9f0",
-    borderRadius: 12,
-    paddingVertical: 9,
-    paddingHorizontal: 16,
-  },
-  startBtnText: {
-    fontFamily: FontFamily.inter.bold,
-    fontSize: 12,
-    color: "#1a1a1a",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
   },
   stopBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 30,
+    height: 30,
+    borderRadius: 9,
     backgroundColor: "#2a2a2a",
     alignItems: "center",
     justifyContent: "center",
