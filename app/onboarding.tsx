@@ -31,15 +31,19 @@ export default function OnboardingScreen() {
   const router = useRouter();
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentIndex < ONBOARDING_SCREENS.length - 1) {
       setCurrentIndex(currentIndex + 1);
     } else {
+      const { useProfileStore } = require("@/store/useProfileStore");
+      await useProfileStore.getState().setHasOnboarded(true);
       router.replace("/login");
     }
   };
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
+    const { useProfileStore } = require("@/store/useProfileStore");
+    await useProfileStore.getState().setHasOnboarded(true);
     router.replace("/login");
   };
 

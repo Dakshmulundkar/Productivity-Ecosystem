@@ -9,6 +9,7 @@ import {
   AppState,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  Image,
 } from "react-native";
 import Animated, {
   FadeInDown,
@@ -41,6 +42,7 @@ import { HabitEmptyState } from "@/components/habits/HabitEmptyState";
 import { HabitIcon } from "@/components/habits/HabitIcons";
 import { HabitHeatmap } from "@/components/habits/HabitHeatmap";
 import { NewHabitSheet } from "@/components/habits/NewHabitSheet";
+import { useProfileStore } from "@/store/useProfileStore";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -102,30 +104,6 @@ export default function HomeScreen() {
     setShowNewHabit(true);
   }, [addHabitScale]);
 
-  // ── Timer interval + AppState foreground sync ──
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const appStateRef = useRef(AppState.currentState);
-
-  useEffect(() => {
-    syncTimer();
-    if (isRunning) {
-      intervalRef.current = setInterval(() => syncTimer(), 1000);
-    } else {
-      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
-    }
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [isRunning, syncTimer]);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (nextState) => {
-      if (appStateRef.current.match(/inactive|background/) && nextState === "active") {
-        syncTimer();
-      }
-      appStateRef.current = nextState;
-    });
-    return () => sub.remove();
-  }, [syncTimer]);
-
   // ── Floating focus bar — hide on scroll, show after 5s idle ──
   const focusBarOpacity  = useSharedValue(1);
   const focusBarTranslateY = useSharedValue(0);
@@ -178,8 +156,9 @@ export default function HomeScreen() {
   const todayISO    = toISO(new Date());
   const tomorrowISO = toISO(addDays(new Date(), 1));
 
-  // ── Filtered tasks ──
+  // ── Filtered tasks — Optimized for zero-lag ──
   const filteredTasks = useMemo((): DashTask[] => {
+    // console.log("[Performance] Re-calculating tasks...");
     const filtered = storeTasks.filter((t) => {
       if (activeFilter === "All") return !t.done;
       if (activeFilter === "Tomorrow") return t.dueDateISO === tomorrowISO;
@@ -200,21 +179,26 @@ export default function HomeScreen() {
   // ── Live habit rate (today) ──
   const habitRate = useMemo(() => {
     if (habits.length === 0) return 0;
-    const completed = habits.filter((h) =>
-      habitLogs.some((l) => l.habitId === h.id && l.date === todayISO),
-    ).length;
+    const completed = habits.filter((h) => isCompleted(h.id, todayISO)).length;
     return Math.round((completed / habits.length) * 100);
-  }, [habits, habitLogs, todayISO]);
+  }, [habits, isCompleted, todayISO]);
 
   // ── Live streak — longest current consecutive days with any task done ──
   const currentStreak = useMemo(() => {
     const doneDates = new Set(
       storeTasks.filter((t) => t.done).map((t) => t.dueDateISO),
     );
+    if (doneDates.size === 0) return 0;
+
     let streak = 0;
     let d = new Date();
-    if (!doneDates.has(toISO(d))) d = addDays(d, -1);
-    while (doneDates.has(toISO(d))) {
+    // Check if today is completed, if not, check yesterday to keep streak alive
+    if (!doneDates.has(toISO(d))) {
+      d = addDays(d, -1);
+    }
+    
+    // Max 1000 days to prevent any runaway loops
+    while (doneDates.has(toISO(d)) && streak < 1000) {
       streak++;
       d = addDays(d, -1);
     }
@@ -260,9 +244,10 @@ export default function HomeScreen() {
   // ── Handlers ──
   const handleToggleTask  = useCallback((id: string) => toggleTask(id), [toggleTask]);
   const handleHabitToggle = useCallback((habitId: string, date: string) => {
-    if (isCompleted(habitId, date)) removeLog(habitId, date);
-    else logCompletion(habitId, date);
-  }, [isCompleted, logCompletion, removeLog]);
+    // Always call logCompletion — the store's cycling logic handles
+    // incrementing and resetting (0→1→...→max→0) automatically.
+    logCompletion(habitId, date);
+  }, [logCompletion]);
 
   const handleHabitDelete = useCallback((habitId: string) => {
     deleteHabit(habitId);
@@ -286,8 +271,9 @@ export default function HomeScreen() {
     }));
   }, []);
 
-  // ── User display ──
-  const displayName = user?.name ?? "";
+  // ── User display — Prefer profile store name over auth display name ──
+  const profileName = useProfileStore((s) => s.name);
+  const displayName = profileName || user?.name || "";
   const { first, last } = splitName(displayName || "there");
   const initials = displayName ? getInitials(displayName) : "?";
   const greeting = getGreeting();
@@ -295,37 +281,40 @@ export default function HomeScreen() {
   // Extra padding so content scrolls clear of the floating focus bar (bar height ~78px)
   const scrollPaddingBottom = insets.bottom + 64 + 12 + 24 + 88;
 
-  // ── Stat cards — all live ──
-  const statCards = useMemo(() => [
-    {
-      bg: "#c8e6c9",
-      label: "Focus today",
-      value: focusTimeDisplay,
-      subtitle: isRunning ? "Session active" : "Tap Start to begin",
-      labelColor: "#166534", valueColor: "#14532d", subtitleColor: "#166534",
-    },
-    {
-      bg: "#f8d7e3",
-      label: "Tasks done",
-      value: String(doneTodayCount),
-      subtitle: `${remainingCount} remaining today`,
-      labelColor: "#9d174d", valueColor: "#831843", subtitleColor: "#9d174d",
-    },
-    {
-      bg: "#fef3c7",
-      label: "Streak",
-      value: `${currentStreak} day${currentStreak !== 1 ? "s" : ""}`,
-      subtitle: currentStreak > 0 ? "Keep it up!" : "Start today",
-      labelColor: "#92400e", valueColor: "#78350f", subtitleColor: "#92400e",
-    },
-    {
-      bg: "#dbeafe",
-      label: "Habit rate",
-      value: `${habitRate}%`,
-      subtitle: "Today",
-      labelColor: "#1e40af", valueColor: "#1e3a8a", subtitleColor: "#1e40af",
-    },
-  ], [focusTimeDisplay, isRunning, doneTodayCount, remainingCount, currentStreak, habitRate]);
+  // ── Stat cards — optimized for zero-lag ──
+  const statCards = useMemo(() => {
+    // console.log("[Performance] Re-calculating stats...");
+    return [
+      {
+        bg: "#c8e6c9",
+        label: "Focus today",
+        value: focusTimeDisplay,
+        subtitle: isRunning ? "Session active" : "Tap Start to begin",
+        labelColor: "#166534", valueColor: "#14532d", subtitleColor: "#166534",
+      },
+      {
+        bg: "#f8d7e3",
+        label: "Tasks done",
+        value: String(doneTodayCount),
+        subtitle: `${remainingCount} remaining today`,
+        labelColor: "#9d174d", valueColor: "#831843", subtitleColor: "#9d174d",
+      },
+      {
+        bg: "#fef3c7",
+        label: "Streak",
+        value: `${currentStreak} day${currentStreak !== 1 ? "s" : ""}`,
+        subtitle: currentStreak > 0 ? "Keep it up!" : "Start today",
+        labelColor: "#92400e", valueColor: "#78350f", subtitleColor: "#92400e",
+      },
+      {
+        bg: "#dbeafe",
+        label: "Habit rate",
+        value: `${habitRate}%`,
+        subtitle: "Today",
+        labelColor: "#1e40af", valueColor: "#1e3a8a", subtitleColor: "#1e40af",
+      },
+    ];
+  }, [focusTimeDisplay, isRunning, doneTodayCount, remainingCount, currentStreak, habitRate]);
 
   return (
     <View style={styles.screen}>
@@ -360,7 +349,11 @@ export default function HomeScreen() {
             hitSlop={8}
             style={styles.avatar}
           >
-            <Text style={styles.avatarText}>{initials}</Text>
+            {user?.avatar ? (
+              <Image source={{ uri: user.avatar }} style={styles.avatarImg} />
+            ) : (
+              <Text style={styles.avatarText}>{initials}</Text>
+            )}
           </Pressable>
         </Animated.View>
 
@@ -444,19 +437,23 @@ export default function HomeScreen() {
               <HabitEmptyState onAdd={handleAddHabit} />
             ) : (
               <View style={styles.habitCard}>
-                {habits.map((habit, i) => (
-                  <HabitRow
-                    key={habit.id}
-                    habit={habit}
-                    streak={getStreakForHabit(habit.id)}
-                    isCompleted={isCompleted(habit.id, todayISO)}
-                    last5Days={getLast5Days(habit.id)}
-                    onToggle={handleHabitToggle}
-                    onDelete={handleHabitDelete}
-                    todayDate={todayISO}
-                    isLast={i === habits.length - 1}
-                  />
-                ))}
+                {habits.map((habit, i) => {
+                  const log = habitLogs.find(l => l.habitId === habit.id && l.date === todayISO);
+                  return (
+                    <HabitRow
+                      key={habit.id}
+                      habit={habit}
+                      streak={getStreakForHabit(habit.id)}
+                      isCompleted={isCompleted(habit.id, todayISO)}
+                      currentCompletions={log?.completions ?? 0}
+                      last5Days={getLast5Days(habit.id)}
+                      onToggle={handleHabitToggle}
+                      onDelete={handleHabitDelete}
+                      todayDate={todayISO}
+                      isLast={i === habits.length - 1}
+                    />
+                  );
+                })}
               </View>
             )
           )}
@@ -566,7 +563,8 @@ const styles = StyleSheet.create({
   greetingName: { fontSize: 28, lineHeight: 32 },
   greetingFirst: { fontFamily: FontFamily.poppins.extraBold, fontSize: 28, color: "#1a1a1a" },
   greetingLast: { fontFamily: FontFamily.poppins.extraBold, fontSize: 28, color: "#b8a9f0" },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#b8a9f0", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#b8a9f0", alignItems: "center", justifyContent: "center", flexShrink: 0, overflow: "hidden" },
+  avatarImg: { width: "100%", height: "100%" },
   avatarText: { fontFamily: FontFamily.poppins.bold, fontSize: 13, color: "#ffffff" },
   scoreCard: { backgroundColor: "#b8a9f0", borderRadius: 24, padding: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   scoreLeft: { flex: 1, marginRight: 12 },

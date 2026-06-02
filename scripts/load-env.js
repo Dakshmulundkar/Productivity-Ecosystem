@@ -10,7 +10,7 @@ const envPath = path.resolve(process.cwd(), ".env");
 
 if (fs.existsSync(envPath)) {
   const envContent = fs.readFileSync(envPath, "utf8");
-  const lines = envContent.split("\n");
+  const lines = envContent.split(/\r?\n/);
 
   lines.forEach((line) => {
     if (!line || line.trim().startsWith("#")) return;

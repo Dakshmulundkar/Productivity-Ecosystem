@@ -3,7 +3,6 @@ import {
   View,
   Text,
   Pressable,
-  Switch,
   Modal,
   ScrollView,
   StyleSheet,
@@ -17,6 +16,7 @@ import * as Haptics from "expo-haptics";
 import { ChevronDown, ChevronRight, Minus, Plus, Pencil, X, Check } from "lucide-react-native";
 import { FontFamily } from "@/lib/_core/theme";
 import { HabitReminderPicker, type Reminder } from "./HabitReminderPicker";
+import { CompletionDotPreview } from "./CompletionDotPreview";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,8 +42,6 @@ const STREAK_OPTIONS: { label: string; value: number | undefined }[] = [
 ];
 
 const CATEGORIES = ["Health", "Work", "Personal", "Study", "Finance", "Custom"];
-
-const SPRING = { damping: 18, stiffness: 200 };
 
 // ─── Picker Modal ─────────────────────────────────────────────────────────────
 
@@ -126,7 +124,6 @@ export const HabitAdvancedOptions = memo(function HabitAdvancedOptions({
   onCompletionsChange,
 }: HabitAdvancedOptionsProps) {
   const [expanded, setExpanded] = useState(false);
-  const [completionsEnabled, setCompletionsEnabled] = useState(completionsPerDay > 1);
   const [trackingMode, setTrackingMode] = useState<"step" | "custom">("step");
   const [showStreakPicker, setShowStreakPicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -145,17 +142,11 @@ export const HabitAdvancedOptions = memo(function HabitAdvancedOptions({
     Haptics.selectionAsync();
   }, [expanded, chevronRotation]);
 
-  const handleCompletionsToggle = useCallback((val: boolean) => {
-    setCompletionsEnabled(val);
-    if (!val) onCompletionsChange(1);
-  }, [onCompletionsChange]);
-
   const streakLabel = streakGoal ? `${streakGoal} days` : "None";
   const categoryLabel = category || "None";
 
   return (
     <View style={styles.container}>
-      {/* Expand toggle row */}
       <Pressable onPress={toggleExpand} style={styles.toggleRow}>
         <Text style={styles.toggleLabel}>Advanced Options</Text>
         <Animated.View style={chevronStyle}>
@@ -165,10 +156,7 @@ export const HabitAdvancedOptions = memo(function HabitAdvancedOptions({
 
       {expanded && (
         <View style={styles.content}>
-
-          {/* ── Row 1: Streak Goal + Reminder ── */}
           <View style={styles.twoCol}>
-            {/* Streak Goal */}
             <View style={styles.halfBlock}>
               <Text style={styles.fieldLabel}>Streak Goal</Text>
               <Pressable
@@ -180,7 +168,6 @@ export const HabitAdvancedOptions = memo(function HabitAdvancedOptions({
               </Pressable>
             </View>
 
-            {/* Reminder */}
             <View style={styles.halfBlock}>
               <Text style={styles.fieldLabel}>Reminder</Text>
               <Pressable
@@ -195,7 +182,6 @@ export const HabitAdvancedOptions = memo(function HabitAdvancedOptions({
             </View>
           </View>
 
-          {/* ── Categories ── */}
           <View>
             <Text style={styles.fieldLabel}>Categories</Text>
             <Pressable
@@ -207,7 +193,6 @@ export const HabitAdvancedOptions = memo(function HabitAdvancedOptions({
             </Pressable>
           </View>
 
-          {/* ── Completion tracking toggle ── */}
           <View>
             <Text style={styles.fieldLabel}>How should completions be tracked?</Text>
             <View style={styles.segmentWrap}>
@@ -231,46 +216,52 @@ export const HabitAdvancedOptions = memo(function HabitAdvancedOptions({
             <Text style={styles.helperText}>Increment by 1 with each completion</Text>
           </View>
 
-          {/* ── Completions Per Day ── */}
-          <View style={styles.completionsRow}>
+          {/* ── Completions Per Day (PART 1 IMPLEMENTATION) ── */}
+          <View style={styles.completionsHeaderRow}>
             <Text style={styles.fieldLabel}>Completions Per Day</Text>
-            <Switch
-              value={completionsEnabled}
-              onValueChange={handleCompletionsToggle}
-              trackColor={{ false: "#e0dbd4", true: "#b8a9f0" }}
-              thumbColor="#ffffff"
-            />
+            <CompletionDotPreview count={completionsPerDay} color="#b8a9f0" />
           </View>
 
-          {completionsEnabled && (
-            <>
-              <View style={styles.counterRow}>
-                <Pressable
-                  style={styles.counterBtn}
-                  onPress={() => { onCompletionsChange(Math.max(1, completionsPerDay - 1)); Haptics.selectionAsync(); }}
-                >
-                  <Minus size={16} color="#1a1a1a" strokeWidth={2} />
-                </Pressable>
-                <Text style={styles.counterValue}>{completionsPerDay} / Day</Text>
-                <Pressable
-                  style={styles.counterBtn}
-                  onPress={() => { onCompletionsChange(completionsPerDay + 1); Haptics.selectionAsync(); }}
-                >
-                  <Plus size={16} color="#1a1a1a" strokeWidth={2} />
-                </Pressable>
-                <Pressable style={styles.counterBtn}>
-                  <Pencil size={14} color="#1a1a1a" strokeWidth={2} />
-                </Pressable>
-              </View>
-              <Text style={styles.helperText}>
-                The square will be filled completely when this number is met
-              </Text>
-            </>
-          )}
+          <View style={styles.counterRow}>
+            <Pressable
+              style={styles.counterBtn}
+              onPress={() => { 
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                onCompletionsChange(Math.max(1, completionsPerDay - 1)); 
+              }}
+            >
+              <Minus size={18} color="rgba(255,255,255,0.7)" strokeWidth={2} />
+            </Pressable>
+            
+            <View style={styles.counterDisplay}>
+              <Text style={styles.counterValue}>{completionsPerDay} / Day</Text>
+            </View>
+
+            <Pressable
+              style={styles.counterBtn}
+              onPress={() => { 
+                if (completionsPerDay >= 10) {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+                } else {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  onCompletionsChange(completionsPerDay + 1); 
+                }
+              }}
+            >
+              <Plus size={18} color="rgba(255,255,255,0.7)" strokeWidth={2} />
+            </Pressable>
+
+            <Pressable style={styles.counterBtn}>
+              <Pencil size={16} color="rgba(255,255,255,0.7)" strokeWidth={2} />
+            </Pressable>
+          </View>
+          
+          <Text style={styles.helperTextCentered}>
+            The ring fills completely when this number is met
+          </Text>
         </View>
       )}
 
-      {/* Streak Goal Picker */}
       <PickerModal
         visible={showStreakPicker}
         title="Streak Goal"
@@ -280,7 +271,6 @@ export const HabitAdvancedOptions = memo(function HabitAdvancedOptions({
         onClose={() => setShowStreakPicker(false)}
       />
 
-      {/* Category Picker */}
       <PickerModal
         visible={showCategoryPicker}
         title="Category"
@@ -290,7 +280,6 @@ export const HabitAdvancedOptions = memo(function HabitAdvancedOptions({
         onClose={() => setShowCategoryPicker(false)}
       />
 
-      {/* Reminder Picker */}
       <HabitReminderPicker
         visible={showReminderPicker}
         reminders={reminders}
@@ -300,8 +289,6 @@ export const HabitAdvancedOptions = memo(function HabitAdvancedOptions({
     </View>
   );
 });
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: {},
@@ -318,7 +305,7 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: 16,
-    paddingBottom: 4,
+    paddingBottom: 20,
   },
   twoCol: {
     flexDirection: "row",
@@ -357,7 +344,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#555",
   },
-  // Completion tracking segment
   segmentWrap: {
     flexDirection: "row",
     backgroundColor: "#eceae5",
@@ -381,22 +367,33 @@ const styles = StyleSheet.create({
   segmentTextActive: {
     color: "#ffffff",
   },
-  // Completions per day
-  completionsRow: {
+  helperText: {
+    fontFamily: FontFamily.inter.regular,
+    fontSize: 11,
+    color: "#aaa",
+    marginTop: 4,
+  },
+  completionsHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginTop: 8,
   },
   counterRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   counterBtn: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "#eceae5",
+    backgroundColor: "rgba(255,255,255,0.08)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  counterDisplay: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -404,13 +401,12 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.poppins.bold,
     fontSize: 20,
     color: "#1a1a1a",
-    flex: 1,
-    textAlign: "center",
   },
-  helperText: {
+  helperTextCentered: {
     fontFamily: FontFamily.inter.regular,
     fontSize: 11,
-    color: "#aaa",
+    color: "rgba(0,0,0,0.35)",
     textAlign: "center",
+    marginTop: -4,
   },
 });

@@ -1,6 +1,6 @@
 import React, { useCallback } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
-import { Tabs, useRouter, usePathname } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -13,6 +13,9 @@ import {
   LucideIcon,
 } from "lucide-react-native";
 import { FontFamily } from "@/lib/_core/theme";
+import { useHabitStore } from "@/store/useHabitStore";
+import { useTaskStore } from "@/store/useTaskStore";
+import { useCalendarStore } from "@/store/useCalendarStore";
 
 interface TabDef {
   name: string;
@@ -29,40 +32,55 @@ const TABS: TabDef[] = [
   { name: "profile",  label: "Profile",  href: "/(tabs)/profile",  Icon: User },
 ];
 
-function CustomTabBar({ state }: BottomTabBarProps) {
+function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const pathname = usePathname();
   const bottomOffset = Math.max(insets.bottom, 8) + 12;
-
-  const handlePress = useCallback(
-    (tab: TabDef) => {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      router.push(tab.href as any);
-    },
-    [router],
-  );
 
   return (
     <View style={[styles.tabBar, { bottom: bottomOffset }]}>
-      {TABS.map((tab) => {
-        // Determine active state from pathname
-        const isFocused =
-          tab.name === "index"
-            ? pathname === "/" || pathname === "/(tabs)" || pathname === "/(tabs)/index"
-            : pathname.includes(`/(tabs)/${tab.name}`);
-        const color = isFocused ? "#1a1a1a" : "#cccccc";
+      {state.routes.map((route, index) => {
+        const { options } = descriptors[route.key];
+        const tab = TABS.find(t => t.name === route.name) || TABS[index] || TABS[0];
+        const isFocused = state.index === index;
+
+        const onPress = () => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          const event = navigation.emit({
+            type: "tabPress",
+            target: route.key,
+            canPreventDefault: true,
+          });
+
+          if (!isFocused && !event.defaultPrevented) {
+            navigation.navigate(route.name);
+          }
+        };
+
+        const activeColor = "#000000";
+        const inactiveColor = "#b0b0b0";
+        const color = isFocused ? activeColor : inactiveColor;
 
         return (
           <Pressable
-            key={tab.name}
-            onPress={() => handlePress(tab)}
+            key={route.key}
+            onPress={onPress}
             style={styles.tabItem}
-            hitSlop={4}
+            hitSlop={8}
           >
-            <tab.Icon size={22} color={color} strokeWidth={isFocused ? 2.2 : 1.8} />
-            <Text style={[styles.tabLabel, { color }]}>{tab.label}</Text>
-            {isFocused && <View style={styles.dot} />}
+            <View style={styles.iconContainer}>
+              <tab.Icon 
+                size={22} 
+                color={color} 
+                strokeWidth={isFocused ? 2.4 : 1.8} 
+              />
+              {isFocused && <View style={styles.activeIndicator} />}
+            </View>
+            <Text style={[
+              styles.tabLabel, 
+              { color, fontFamily: isFocused ? FontFamily.inter.bold : FontFamily.inter.medium }
+            ]}>
+              {tab.label}
+            </Text>
           </Pressable>
         );
       })}
@@ -70,7 +88,41 @@ function CustomTabBar({ state }: BottomTabBarProps) {
   );
 }
 
+import { useAuth } from "@/lib/auth-context";
+
 export default function TabLayout() {
+  const { user, isSignedIn, isLoading } = useAuth();
+  const router = useRouter();
+
+  const subHabits = useHabitStore((s) => s.subscribeToFirestore);
+  const unsubHabits = useHabitStore((s) => s.unsubscribeFromFirestore);
+  const subTasks = useTaskStore((s) => s.subscribeToFirestore);
+  const unsubTasks = useTaskStore((s) => s.unsubscribeFromFirestore);
+  const subCal = useCalendarStore((s) => s.subscribeToFirestore);
+
+  // ── Route protection ──
+  React.useEffect(() => {
+    if (!isLoading && !isSignedIn) {
+      router.replace("/login");
+    }
+  }, [isLoading, isSignedIn, router]);
+
+  // ── Data Synchronization — Senior Dev Implementation ──
+  // We subscribe centrally in the Layout so all tabs have fresh data immediately.
+  React.useEffect(() => {
+    if (isSignedIn && user?.id) {
+      subHabits(user.id);
+      subTasks(user.id);
+      subCal(user.id);
+      return () => {
+        unsubHabits();
+        unsubTasks();
+      };
+    }
+  }, [isSignedIn, user?.id, subHabits, unsubHabits, subTasks, unsubTasks, subCal]);
+
+  if (isLoading) return null; // or a loading spinner
+
   return (
     <Tabs
       tabBar={(props) => <CustomTabBar {...props} />}
@@ -110,14 +162,20 @@ const styles = StyleSheet.create({
     gap: 3,
     paddingVertical: 8,
   },
-  tabLabel: {
-    fontFamily: FontFamily.inter.semiBold,
-    fontSize: 9,
+  iconContainer: {
+    alignItems: "center",
+    justifyContent: "center",
   },
-  dot: {
+  activeIndicator: {
+    position: "absolute",
+    bottom: -6,
     width: 4,
     height: 4,
-    borderRadius: 99,
-    backgroundColor: "#1a1a1a",
+    borderRadius: 2,
+    backgroundColor: "#000000",
+  },
+  tabLabel: {
+    fontFamily: FontFamily.inter.medium,
+    fontSize: 9,
   },
 });

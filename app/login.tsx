@@ -37,10 +37,12 @@ export default function LoginScreen() {
       setIsLoading(true);
       setError("");
       await login(email, password);
-      router.replace("/(tabs)");
+      // Wait for onAuthStateChanged in _layout to fire and subscribe stores
+      // before navigating to the dashboard. Without this delay, the dashboard
+      // mounts before Firestore subscriptions are ready and crashes.
+      setTimeout(() => router.replace("/(tabs)"), 800);
     } catch (err: any) {
       setError(err.message ?? "Login failed. Please try again.");
-    } finally {
       setIsLoading(false);
     }
   };
@@ -50,14 +52,14 @@ export default function LoginScreen() {
       setIsLoading(true);
       setError("");
       await loginWithGoogle();
-      router.replace("/(tabs)");
+      setTimeout(() => router.replace("/(tabs)"), 800);
     } catch (err: any) {
       if (err.message?.includes("cancelled")) {
         // User dismissed — no error needed
+        setIsLoading(false);
         return;
       }
       setError(err.message ?? "Google login failed. Please try again.");
-    } finally {
       setIsLoading(false);
     }
   };

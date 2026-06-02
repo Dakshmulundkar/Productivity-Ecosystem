@@ -12,6 +12,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { isSignInWithEmailLink, signInWithEmailLink } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRef } from "react";
 
 const OTP_EMAIL_KEY = "vero_otp_email";
 
@@ -20,8 +21,12 @@ export default function OAuthCallback() {
   const params = useLocalSearchParams<{ link?: string }>();
   const [status, setStatus] = useState<"processing" | "done" | "error">("processing");
 
+  const processing = useRef(false);
+
   useEffect(() => {
     const handle = async () => {
+      if (processing.current) return;
+      processing.current = true;
       try {
         // Check if this is a Firebase email sign-in link
         const link = params.link ?? (typeof window !== "undefined" ? window.location.href : "");

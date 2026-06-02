@@ -11,6 +11,7 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { Check, Trash2 } from "lucide-react-native";
+import Svg, { Circle } from "react-native-svg";
 import { HabitIcon } from "./HabitIcons";
 import { HabitDaySquares } from "./HabitDaySquares";
 import { FontFamily } from "@/lib/_core/theme";
@@ -28,6 +29,7 @@ interface HabitRowProps {
   habit: Habit;
   streak: number;
   isCompleted: boolean;
+  currentCompletions: number;
   last5Days: { date: string; dayLabel: string; completed: boolean; isToday: boolean }[];
   onToggle: (habitId: string, date: string) => void;
   onDelete?: (habitId: string) => void;
@@ -42,6 +44,7 @@ export const HabitRow = memo(function HabitRow({
   habit,
   streak,
   isCompleted,
+  currentCompletions,
   last5Days,
   onToggle,
   onDelete,
@@ -136,7 +139,7 @@ export const HabitRow = memo(function HabitRow({
       <View style={styles.center}>
         <Text style={styles.name} numberOfLines={1}>{habit.name}</Text>
         <Text style={styles.streak}>{streak}-day streak</Text>
-        <HabitDaySquares days={last5Days} color={habit.color} />
+        <HabitDaySquares days={last5Days} color={habit.color} max={habit.completionsPerDay} />
       </View>
 
       {/* Delete button — slides in on long press */}
@@ -146,22 +149,59 @@ export const HabitRow = memo(function HabitRow({
         </Pressable>
       </Animated.View>
 
-      {/* Completion circle */}
+      {/* Completion circle / Segmented Progress */}
       <Pressable onPress={handleToggle} hitSlop={12}>
         <Animated.View style={[styles.checkCircle, { borderColor: habit.color }, checkAnimStyle]}>
-          {/* Filled background */}
-          <Animated.View
-            style={[
-              StyleSheet.absoluteFillObject,
-              styles.checkCircleFill,
-              { backgroundColor: habit.color },
-              bgAnimStyle,
-            ]}
-          />
-          {/* Checkmark */}
-          <Animated.View style={fillAnimStyle}>
-            <Check size={16} color="#fff" strokeWidth={2.5} />
-          </Animated.View>
+          {/* Filled background part for 1-completion habits */}
+          {habit.completionsPerDay === 1 && (
+            <Animated.View
+              style={[
+                StyleSheet.absoluteFillObject,
+                styles.checkCircleFill,
+                { backgroundColor: habit.color },
+                bgAnimStyle,
+              ]}
+            />
+          )}
+
+          {/* Segmented view for multi-completion habits */}
+          {habit.completionsPerDay > 1 ? (
+             <View style={styles.segmentsWrap}>
+                <Svg width={42} height={42} viewBox="0 0 42 42">
+                  {Array.from({ length: habit.completionsPerDay }).map((_, i) => {
+                    const filled = i < currentCompletions;
+                    const angle = 360 / habit.completionsPerDay;
+                    const rotation = i * angle - 90;
+                    const strokeDash = 100; // arbitrary total length
+                    const gap = 2; // gap between segments in degrees
+                    const strokePercent = (angle - gap) / 360;
+                    const circum = 2 * Math.PI * 18; // radius 18
+                    
+                    return (
+                      <Circle
+                        key={i}
+                        cx="21"
+                        cy="21"
+                        r="18"
+                        fill="transparent"
+                        stroke={filled ? habit.color : hexToRgba(habit.color, 0.15)}
+                        strokeWidth={4}
+                        strokeDasharray={`${circum * strokePercent} ${circum * (1 - strokePercent)}`}
+                        transform={`rotate(${rotation}, 21, 21)`}
+                        strokeLinecap="round"
+                      />
+                    );
+                  })}
+                </Svg>
+                <View style={styles.ringCenterText}>
+                   <Text style={[styles.ringCount, { color: habit.color }]}>{currentCompletions}</Text>
+                </View>
+             </View>
+          ) : (
+            <Animated.View style={fillAnimStyle}>
+              <Check size={16} color="#fff" strokeWidth={3} />
+            </Animated.View>
+          )}
         </Animated.View>
       </Pressable>
     </Pressable>
@@ -228,5 +268,20 @@ const styles = StyleSheet.create({
   },
   checkCircleFill: {
     borderRadius: 21,
+  },
+  segmentsWrap: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ringCenterText: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ringCount: {
+    fontFamily: FontFamily.poppins.bold,
+    fontSize: 12,
   },
 });

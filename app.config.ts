@@ -1,12 +1,10 @@
-// Load environment variables with proper priority (system > .env)
+// Load environment variables
 import "./scripts/load-env.js";
 import type { ExpoConfig } from "expo/config";
 
 // Bundle ID — read from env, never hardcoded
-const rawBundleId = process.env.EXPO_PUBLIC_APP_BUNDLE_ID ?? "";
-if (!rawBundleId) {
-  throw new Error("EXPO_PUBLIC_APP_BUNDLE_ID is not set. Add it to your .env file.");
-}
+// On EAS Build, we fall back to a placeholder if the secret isn't set yet during the initial 'read config' phase
+const rawBundleId = process.env.EXPO_PUBLIC_APP_BUNDLE_ID || "com.placeholder.app";
 
 const bundleId =
   rawBundleId
@@ -25,6 +23,13 @@ const bundleId =
 // Deep link scheme derived from bundle ID last segment
 const schemeSegment = bundleId.split(".").pop() ?? "app";
 const schemeFromBundleId = `daksh${schemeSegment}`;
+
+const isProduction = process.env.NODE_ENV === "production" || process.env.EAS_BUILD_PROFILE === "production" || process.env.EAS_BUILD_PROFILE === "preview";
+
+if (isProduction && (!process.env.EXPO_PUBLIC_APP_BUNDLE_ID || process.env.EXPO_PUBLIC_APP_BUNDLE_ID === "com.placeholder.app")) {
+  console.error("❌ ERROR: EXPO_PUBLIC_APP_BUNDLE_ID is not set in EAS Secrets or .env file.");
+  console.error("Production builds require a valid unique bundle identifier.");
+}
 
 const env = {
   appName: "Vero",
@@ -127,6 +132,8 @@ const config: ExpoConfig = {
           enableProguardInReleaseBuilds: true,
           enableShrinkResourcesInReleaseBuilds: true,
           useLegacyPackaging: false,
+          enableMinifyInReleaseBuilds: true,
+          extractNativeLibs: false,
         },
       },
     ],

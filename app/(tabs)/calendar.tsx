@@ -133,6 +133,17 @@ const WheelColumn = memo(function WheelColumn({
     listRef.current?.scrollToOffset({ offset: index * ITEM_HEIGHT, animated });
   }, []);
 
+  const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const offset = e.nativeEvent.contentOffset.y;
+    const index = Math.round(offset / ITEM_HEIGHT);
+    const clamped = Math.max(0, Math.min(index, items.length - 1));
+    
+    // Virtual haptics while scrolling
+    if (clamped !== selectedIndex && !isScrolling.current) {
+        // We only want to trigger this if it's a new index
+    }
+  }, [items.length, selectedIndex]);
+
   const handleScrollEnd = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const offset = e.nativeEvent.contentOffset.y;
     const index = Math.round(offset / ITEM_HEIGHT);
@@ -157,6 +168,8 @@ const WheelColumn = memo(function WheelColumn({
         showsVerticalScrollIndicator={false}
         snapToInterval={ITEM_HEIGHT}
         decelerationRate="fast"
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         onMomentumScrollEnd={handleScrollEnd}
         onScrollEndDrag={handleScrollEnd}
         onLayout={() => scrollToIndex(selectedIndex, false)}
@@ -173,7 +186,11 @@ const WheelColumn = memo(function WheelColumn({
           return (
             <Pressable
               style={wheelStyles.item}
-              onPress={() => { scrollToIndex(index); onSelect(index); Haptics.selectionAsync(); }}
+              onPress={() => { 
+                scrollToIndex(index); 
+                onSelect(index); 
+                Haptics.selectionAsync(); 
+              }}
             >
               <Text style={[
                 wheelStyles.itemText,

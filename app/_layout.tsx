@@ -4,7 +4,8 @@ import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
+import { useFocusStore } from "@/store/useFocusStore";
 import "@/lib/_core/nativewind-pressable";
 import { ThemeProvider } from "@/lib/theme-provider";
 import { AuthProvider } from "@/lib/auth-context";
@@ -16,11 +17,13 @@ import {
 } from "react-native-safe-area-context";
 import type { EdgeInsets, Metrics, Rect } from "react-native-safe-area-context";
 import { initAppRuntime, subscribeToSafeAreaInsets } from "@/lib/_core/app-runtime";
+import { requestNotificationPermissions } from "@/lib/notifications";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 import { useTaskStore } from "@/store/useTaskStore";
 import { useHabitStore } from "@/store/useHabitStore";
 import { useProfileStore } from "@/store/useProfileStore";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 // Font loading
 import {
@@ -73,30 +76,94 @@ export default function RootLayout() {
 
   useEffect(() => {
     initAppRuntime();
+    // Pre-emptively request notification permissions
+    requestNotificationPermissions().catch(() => {});
   }, []);
 
   // Wire Firestore subscriptions when auth state changes
+  // IMPORTANT: We delay the subscriptions slightly to let the Firebase auth
+  // token propagate to Firestore. Without this, the initial onSnapshot query
+  // can throw a permission-denied error and crash the app.
   useEffect(() => {
-    const subscribeToFirestore = useTaskStore.getState().subscribeToFirestore;
-    const unsubscribeFromFirestore = useTaskStore.getState().unsubscribeFromFirestore;
-    const subscribeHabits = useHabitStore.getState().subscribeToFirestore;
-    const unsubscribeHabits = useHabitStore.getState().unsubscribeFromFirestore;
-    const syncProfile = useProfileStore.getState().syncFromFirestore;
+    let delayTimer: ReturnType<typeof setTimeout> | null = null;
 
     const unsubAuth = onAuthStateChanged(auth, (user) => {
+      // Clear any pending subscription timer from a previous auth event
+      if (delayTimer) { clearTimeout(delayTimer); delayTimer = null; }
+
       if (user) {
-        subscribeToFirestore(user.uid);
-        subscribeHabits(user.uid);
-        syncProfile();
+        // Small delay to let the auth token propagate to Firestore
+        delayTimer = setTimeout(() => {
+          try {
+            useTaskStore.getState().subscribeToFirestore(user.uid);
+          } catch (e) {
+            console.warn("[Layout] Task subscription failed:", e);
+          }
+          try {
+            useHabitStore.getState().subscribeToFirestore(user.uid);
+          } catch (e) {
+            console.warn("[Layout] Habit subscription failed:", e);
+          }
+          try {
+            useProfileStore.getState().syncFromFirestore();
+          } catch (e) {
+            console.warn("[Layout] Profile sync failed:", e);
+          }
+        }, 500);
       } else {
-        unsubscribeFromFirestore();
-        unsubscribeHabits();
+        // Clear everything on logout to prevent crashes and stale data
+        try { useTaskStore.getState().unsubscribeFromFirestore(); } catch (_) {}
+        try { useHabitStore.getState().unsubscribeFromFirestore(); } catch (_) {}
+        try { useProfileStore.getState().clearStore(); } catch (_) {}
       }
     });
+
     return () => {
       unsubAuth();
-      unsubscribeFromFirestore();
-      unsubscribeHabits();
+      if (delayTimer) clearTimeout(delayTimer);
+      try { useTaskStore.getState().unsubscribeFromFirestore(); } catch (_) {}
+      try { useHabitStore.getState().unsubscribeFromFirestore(); } catch (_) {}
+      try { useProfileStore.getState().unsubscribeFromFirestore(); } catch (_) {}
+    };
+  }, []);
+
+  // ── Global Focus Timer Sync ──
+  useEffect(() => {
+    const sync = useFocusStore.getState().syncTimer;
+    const isRunning = useFocusStore.getState().isRunning;
+    
+    // Initial sync
+    sync();
+
+    let intervalId: any = null;
+    if (useFocusStore.getState().isRunning) {
+      intervalId = setInterval(() => useFocusStore.getState().syncTimer(), 1000);
+    }
+
+    // Subscribe to store changes to start/stop the interval
+    const unsubStore = useFocusStore.subscribe(
+      (state) => {
+        const isRunning = state.isRunning;
+        if (isRunning && !intervalId) {
+          intervalId = setInterval(() => useFocusStore.getState().syncTimer(), 1000);
+        } else if (!isRunning && intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+      }
+    );
+
+    // AppState listener for foreground sync
+    const unsubAppState = AppState.addEventListener("change", (nextState) => {
+      if (nextState === "active") {
+        useFocusStore.getState().syncTimer();
+      }
+    });
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+      unsubStore();
+      unsubAppState.remove();
     };
   }, []);
 
@@ -128,17 +195,19 @@ export default function RootLayout() {
   const content = (
     <AuthProvider>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="splash"           options={{ animation: "none" }} />
-          <Stack.Screen name="onboarding" />
-          <Stack.Screen name="login" />
-          <Stack.Screen name="signup" />
-          <Stack.Screen name="forgot-password" />
-          <Stack.Screen name="verify-otp" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="oauth/callback" />
-          <Stack.Screen name="privacy-policy" />
-        </Stack>
+        <ErrorBoundary>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="splash"           options={{ animation: "none" }} />
+            <Stack.Screen name="onboarding" />
+            <Stack.Screen name="login" />
+            <Stack.Screen name="signup" />
+            <Stack.Screen name="forgot-password" />
+            <Stack.Screen name="verify-otp" />
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="oauth/callback" />
+            <Stack.Screen name="privacy-policy" />
+          </Stack>
+        </ErrorBoundary>
         <StatusBar style="auto" />
       </GestureHandlerRootView>
     </AuthProvider>

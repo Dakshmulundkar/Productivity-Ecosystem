@@ -55,10 +55,16 @@ export default function SignupScreen() {
       setIsLoading(true);
       setError("");
       await signup(email, password, name);
-      router.replace("/(tabs)");
+      try {
+        const { useProfileStore } = require("@/store/useProfileStore");
+        await useProfileStore.getState().setHasOnboarded(true);
+      } catch (e) {
+         // Fallback if store isn't available
+      }
+      // Wait for onAuthStateChanged in _layout to fire and subscribe stores
+      setTimeout(() => router.replace("/(tabs)"), 800);
     } catch (err: any) {
       setError(err.message ?? "Signup failed. Please try again.");
-    } finally {
       setIsLoading(false);
     }
   };
@@ -68,14 +74,14 @@ export default function SignupScreen() {
       setIsLoading(true);
       setError("");
       await loginWithGoogle();
-      router.replace("/(tabs)");
+      setTimeout(() => router.replace("/(tabs)"), 800);
     } catch (err: any) {
       if (err.message?.includes("cancelled")) {
         // User dismissed — no error needed
+        setIsLoading(false);
         return;
       }
       setError(err.message ?? "Google sign-up failed. Please try again.");
-    } finally {
       setIsLoading(false);
     }
   };

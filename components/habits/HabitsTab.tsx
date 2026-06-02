@@ -85,6 +85,7 @@ const SubViewToggle = memo(function SubViewToggle({
 
 const TodayView = memo(function TodayView({ onAddHabit }: { onAddHabit: () => void }) {
   const habits = useHabitStore((s) => s.habits);
+  const habitLogs = useHabitStore((s) => s.logs);
   const logCompletion = useHabitStore((s) => s.logCompletion);
   const removeLog = useHabitStore((s) => s.removeLog);
   const isCompleted = useHabitStore((s) => s.isCompleted);
@@ -102,12 +103,9 @@ const TodayView = memo(function TodayView({ onAddHabit }: { onAddHabit: () => vo
   });
 
   const handleToggle = useCallback((habitId: string, date: string) => {
-    if (isCompleted(habitId, date)) {
-      removeLog(habitId, date);
-    } else {
-      logCompletion(habitId, date);
-    }
-  }, [isCompleted, logCompletion, removeLog]);
+    // Always call logCompletion — the store's cycling logic handles reset
+    logCompletion(habitId, date);
+  }, [logCompletion]);
 
   const handleDelete = useCallback((habitId: string) => {
     deleteHabit(habitId);
@@ -127,23 +125,27 @@ const TodayView = memo(function TodayView({ onAddHabit }: { onAddHabit: () => vo
 
       {/* Habit card */}
       <View style={styles.habitCard}>
-        {habits.map((habit, i) => (
-          <Animated.View
-            key={habit.id}
-            entering={FadeInDown.delay(i * 50).duration(350)}
-          >
-            <HabitRow
-              habit={habit}
-              streak={getStreakForHabit(habit.id)}
-              isCompleted={isCompleted(habit.id, todayStr)}
-              last5Days={getLast5Days(habit.id)}
-              onToggle={handleToggle}
-              onDelete={handleDelete}
-              todayDate={todayStr}
-              isLast={i === habits.length - 1}
-            />
-          </Animated.View>
-        ))}
+        {habits.map((habit, i) => {
+          const log = habitLogs.find(l => l.habitId === habit.id && l.date === todayStr);
+          return (
+            <Animated.View
+              key={habit.id}
+              entering={FadeInDown.delay(i * 50).duration(350)}
+            >
+              <HabitRow
+                habit={habit}
+                streak={getStreakForHabit(habit.id)}
+                isCompleted={isCompleted(habit.id, todayStr)}
+                currentCompletions={log?.completions ?? 0}
+                last5Days={getLast5Days(habit.id)}
+                onToggle={handleToggle}
+                onDelete={handleDelete}
+                todayDate={todayStr}
+                isLast={i === habits.length - 1}
+              />
+            </Animated.View>
+          );
+        })}
       </View>
     </View>
   );

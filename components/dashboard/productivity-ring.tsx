@@ -27,7 +27,8 @@ export const ProductivityRing = memo(function ProductivityRing({
   const strokeDashoffset = useSharedValue(CIRCUMFERENCE);
 
   useEffect(() => {
-    const targetOffset = CIRCUMFERENCE * (1 - score / 100);
+    const safeScore = isNaN(score) ? 0 : score;
+    const targetOffset = CIRCUMFERENCE * (1 - safeScore / 100);
     strokeDashoffset.value = withTiming(targetOffset, {
       duration: 1000,
       easing: Easing.out(Easing.cubic),

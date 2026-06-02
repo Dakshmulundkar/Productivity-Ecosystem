@@ -62,6 +62,8 @@ export interface AuthContextType {
   loginWithOTP: (email: string) => Promise<void>;
   verifyOTP: (email: string, code: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  updateUserName: (name: string) => Promise<void>;
+  updateUserAvatar: (photoURL: string) => Promise<void>;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -151,7 +153,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // ── Logout ──
   const logout = async () => {
+    // 1. Log out from Firebase
     await signOut(auth);
+    // 2. Log out from Google (if native) to allow account switching
+    const gs = getGoogleSignin();
+    if (gs) {
+      try {
+        await gs.GoogleSignin.signOut();
+      } catch (e) {
+        console.warn("Google Sign-out failed:", e);
+      }
+    }
   };
 
   // ── Google Sign-In ──
@@ -231,6 +243,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateUserName = async (name: string) => {
+    if (auth.currentUser) {
+      await updateProfile(auth.currentUser, { displayName: name });
+      setUser((prev) => (prev ? { ...prev, name } : null));
+    }
+  };
+
+  const updateUserAvatar = async (photoURL: string) => {
+    if (auth.currentUser) {
+      await updateProfile(auth.currentUser, { photoURL });
+      setUser((prev) => (prev ? { ...prev, avatar: photoURL } : null));
+    }
+  };
+
   const value: AuthContextType = {
     user,
     isLoading,
@@ -242,6 +268,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     loginWithOTP,
     verifyOTP,
     resetPassword,
+    updateUserName,
+    updateUserAvatar,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

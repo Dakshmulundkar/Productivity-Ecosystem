@@ -365,7 +365,6 @@ export default function TasksScreen() {
       description: formDesc.trim() || "No description",
       priority: formPriority,
       dueDateISO,
-      done: false,
     });
     setShowSheet(false);
   }, [formTitle, formDesc, formPriority, formDueDateMode, customDate, addTask]);

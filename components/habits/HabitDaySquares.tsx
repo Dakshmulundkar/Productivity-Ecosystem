@@ -7,12 +7,14 @@ interface DaySquare {
   date: string;
   dayLabel: string;
   completed: boolean;
+  count: number;
   isToday: boolean;
 }
 
 interface HabitDaySquaresProps {
   days: DaySquare[];
   color: string;
+  max: number;
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -26,28 +28,34 @@ function hexToRgba(hex: string, alpha: number): string {
 export const HabitDaySquares = memo(function HabitDaySquares({
   days,
   color,
+  max = 1,
 }: HabitDaySquaresProps) {
   return (
     <View style={styles.row}>
-      {days.map((day, i) => (
-        <Animated.View
-          key={day.date}
-          entering={FadeIn.delay(i * 30).duration(200)}
-          style={styles.col}
-        >
-          <Text style={styles.dayLabel}>{day.dayLabel}</Text>
-          <View
-            style={[
-              styles.square,
-              day.completed
-                ? { backgroundColor: color }
-                : day.isToday
-                ? { backgroundColor: "transparent", borderWidth: 1.5, borderColor: color }
-                : { backgroundColor: hexToRgba(color, 0.15) },
-            ]}
-          />
-        </Animated.View>
-      ))}
+      {days.map((day, i) => {
+        const opacity = day.count > 0 ? (0.25 + (day.count / max) * 0.75) : 1;
+        const bgColor = day.count > 0 ? hexToRgba(color, opacity) : hexToRgba(color, 0.12);
+
+        return (
+          <Animated.View
+            key={day.date}
+            entering={FadeIn.delay(i * 30).duration(200)}
+            style={styles.col}
+          >
+            <Text style={styles.dayLabel}>{day.dayLabel}</Text>
+            <View
+              style={[
+                styles.square,
+                day.count > 0
+                  ? { backgroundColor: bgColor }
+                  : day.isToday
+                  ? { backgroundColor: "transparent", borderWidth: 1.5, borderColor: color }
+                  : { backgroundColor: hexToRgba(color, 0.12) },
+              ]}
+            />
+          </Animated.View>
+        );
+      })}
     </View>
   );
 });

@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { auth, db } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 export type SessionType = "Pomodoro" | "Short Break" | "Long Break";
 
@@ -78,11 +81,14 @@ export const useFocusStore = create<FocusStore>()(
           startedAt: Date.now(),
           pausedElapsed: 0,
         });
+        
+        // Schedule push notification
+        const { scheduleFocusDoneNotification } = require("@/lib/notifications");
+        scheduleFocusDoneNotification(duration, type);
       },
 
       pauseSession: () => {
         const { startedAt, pausedElapsed } = get();
-        // Capture how many seconds have elapsed so far
         const nowElapsed = startedAt
           ? pausedElapsed + Math.floor((Date.now() - startedAt) / 1000)
           : pausedElapsed;
@@ -93,14 +99,23 @@ export const useFocusStore = create<FocusStore>()(
           pausedElapsed: nowElapsed,
           elapsedSeconds: nowElapsed,
         });
+
+        // Cancel notification
+        const { cancelAllFocusNotifications } = require("@/lib/notifications");
+        cancelAllFocusNotifications();
       },
 
       resumeSession: () => {
+        const remaining = get().remainingSeconds;
         set({
           isRunning: true,
           isPaused: false,
-          startedAt: Date.now(), // restart wall-clock from now
+          startedAt: Date.now(),
         });
+
+        // Re-schedule notification with remaining time
+        const { scheduleFocusDoneNotification } = require("@/lib/notifications");
+        scheduleFocusDoneNotification(remaining, get().sessionType);
       },
 
       stopSession: () => {
@@ -118,6 +133,11 @@ export const useFocusStore = create<FocusStore>()(
           pausedElapsed: 0,
           focusSecondsToday: state.focusSecondsToday + focusGain,
         }));
+        get().syncToFirestore(); // ── Sync to Cloud ──
+
+        // Cancel notification
+        const { cancelAllFocusNotifications } = require("@/lib/notifications");
+        cancelAllFocusNotifications();
       },
 
       syncTimer: () => {
@@ -139,11 +159,26 @@ export const useFocusStore = create<FocusStore>()(
             pausedElapsed: 0,
             focusSecondsToday: state.focusSecondsToday + focusGain,
           }));
+          get().syncToFirestore(); // ── Sync to Cloud ──
         } else {
           set({
             remainingSeconds: remaining,
             elapsedSeconds: totalElapsed,
           });
+        }
+      },
+
+      syncToFirestore: async () => {
+        const uid = auth.currentUser?.uid;
+        if (!uid) return;
+        const today = todayString();
+        try {
+          await setDoc(doc(db, "users", uid, "dailyFocusTime", today), {
+            seconds: get().focusSecondsToday,
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+        } catch (e) {
+          console.error("[FocusStore] Firestore sync failed:", e);
         }
       },
 
@@ -153,6 +188,11 @@ export const useFocusStore = create<FocusStore>()(
     {
       name: "focus-storage-v2",  // bumped key so old state doesn't conflict
       storage: createJSONStorage(() => AsyncStorage),
+      onRehydrateStorage: (state) => {
+        return (rehydratedState, error) => {
+          if (rehydratedState) rehydratedState.resetDailyIfNeeded();
+        };
+      },
       partialize: (state) => ({
         focusSecondsToday: state.focusSecondsToday,
         lastResetDate: state.lastResetDate,
@@ -167,6 +207,24 @@ export const useFocusStore = create<FocusStore>()(
     },
   ),
 );
+
+// Subscribe to auth changes to sync focus time from Firestore if needed
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    const today = todayString();
+    try {
+      const snap = await getDoc(doc(db, "users", user.uid, "dailyFocusTime", today));
+      if (snap.exists()) {
+        const data = snap.data();
+        const current = useFocusStore.getState().focusSecondsToday;
+        // Only update if server value is higher (prevents back-syncing 0)
+        if (data.seconds > current) {
+          useFocusStore.setState({ focusSecondsToday: data.seconds });
+        }
+      }
+    } catch {}
+  }
+});
 
 export function formatFocusTime(seconds: number): string {
   if (seconds < 60) return seconds > 0 ? `${seconds}s` : "0m";

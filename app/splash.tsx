@@ -3,6 +3,7 @@ import { ScreenContainer } from "@/components/screen-container";
 import { useEffect } from "react";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/lib/auth-context";
+import { useProfileStore } from "@/store/useProfileStore";
 
 export default function SplashScreen() {
   const router = useRouter();
@@ -13,8 +14,12 @@ export default function SplashScreen() {
     if (isLoading) return;
 
     const timer = setTimeout(() => {
+      const hasOnboarded = useProfileStore.getState().hasOnboarded;
+
       if (isSignedIn) {
         router.replace("/(tabs)");
+      } else if (hasOnboarded) {
+        router.replace("/login");
       } else {
         router.replace("/onboarding");
       }

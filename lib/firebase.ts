@@ -5,7 +5,10 @@
  * Set the EXPO_PUBLIC_FIREBASE_* variables in your .env file.
  */
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { initializeAuth, getAuth } from "firebase/auth";
+// @ts-ignore - getReactNativePersistence is sometimes not exported in the main entry point's types
+import { getReactNativePersistence } from "firebase/auth";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -17,9 +20,21 @@ const firebaseConfig = {
   appId:             process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? "",
 };
 
-// Prevent duplicate initialization in hot-reload
+// Prevent duplicate initialization
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-export const auth = getAuth(app);
+// In React Native, we must use initializeAuth with getReactNativePersistence
+// to ensure the user stays logged in after the app is closed.
+let _auth;
+try {
+  _auth = getAuth(app);
+} catch (e) {
+  _auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage),
+  });
+}
+
+export const auth = _auth;
+
 export const db   = getFirestore(app);
 export default app;
