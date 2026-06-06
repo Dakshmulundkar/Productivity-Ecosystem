@@ -127,14 +127,11 @@ const config: any = {
         android: {
           buildArchs: ["arm64-v8a"],
           minSdkVersion: 24,
-          // Enable shrinking and minification to reduce APK size significantly.
-          // This cuts install size and install time — large APKs stall on Android installer.
-          enableProguardInReleaseBuilds: true,
-          enableShrinkResourcesInReleaseBuilds: true,
+          enableProguardInReleaseBuilds: false,
+          enableShrinkResourcesInReleaseBuilds: false,
           useLegacyPackaging: false,
-          enableMinifyInReleaseBuilds: true,
+          enableMinifyInReleaseBuilds: false,
           extractNativeLibs: false,
-          proguardRules: "./proguard-rules.pro",
         },
       },
     ],
