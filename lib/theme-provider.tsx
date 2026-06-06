@@ -41,15 +41,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const themeVariables = useMemo(
     () =>
       vars({
-        "color-primary": SchemeColors[colorScheme].primary,
+        "color-primary":    SchemeColors[colorScheme].lavender,
         "color-background": SchemeColors[colorScheme].background,
-        "color-surface": SchemeColors[colorScheme].surface,
+        "color-surface":    SchemeColors[colorScheme].surface,
         "color-foreground": SchemeColors[colorScheme].foreground,
-        "color-muted": SchemeColors[colorScheme].muted,
-        "color-border": SchemeColors[colorScheme].border,
-        "color-success": SchemeColors[colorScheme].success,
-        "color-warning": SchemeColors[colorScheme].warning,
-        "color-error": SchemeColors[colorScheme].error,
+        "color-muted":      SchemeColors[colorScheme].muted,
+        "color-border":     SchemeColors[colorScheme].border,
+        "color-success":    SchemeColors[colorScheme].success,
+        "color-warning":    SchemeColors[colorScheme].warning,
+        "color-error":      SchemeColors[colorScheme].error,
       }),
     [colorScheme],
   );

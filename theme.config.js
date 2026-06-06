@@ -65,3 +65,5 @@ const themeColors = {
 };
 
 module.exports = { themeColors };
+// Named export for ES module imports
+module.exports.themeColors = themeColors;
