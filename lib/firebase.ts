@@ -6,17 +6,10 @@
  */
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { initializeAuth, getAuth } from "firebase/auth";
-// @ts-ignore - getReactNativePersistence is sometimes not exported in the main entry point's types
+// @ts-ignore
 import { getReactNativePersistence } from "firebase/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  initializeFirestore,
-  getFirestore,
-  persistentLocalCache,
-  CACHE_SIZE_UNLIMITED,
-  memoryLocalCache,
-} from "firebase/firestore";
-import { Platform } from "react-native";
+import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey:            process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? "",
@@ -30,9 +23,8 @@ const firebaseConfig = {
 // Prevent duplicate initialization
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Auth — must use initializeAuth with AsyncStorage persistence on React Native
-// so the user stays logged in after the app is closed.
-// initializeAuth throws on hot-reload (already initialized), so we fall back to getAuth.
+// Auth — initializeAuth with AsyncStorage persistence keeps the user logged in
+// after the app is closed. Falls back to getAuth on hot-reload.
 let _auth: ReturnType<typeof getAuth>;
 try {
   _auth = initializeAuth(app, {
@@ -44,21 +36,11 @@ try {
 
 export const auth = _auth;
 
-// Firestore — enable offline persistence so all reads/writes work offline
-// and sync automatically when connectivity is restored.
-let _db: ReturnType<typeof getFirestore>;
-try {
-  _db = initializeFirestore(app, {
-    localCache: Platform.OS === "web"
-      ? memoryLocalCache()
-      : persistentLocalCache({
-          cacheSizeBytes: CACHE_SIZE_UNLIMITED,
-        }),
-  });
-} catch (e) {
-  // Already initialized (hot reload) — get the existing instance
-  _db = getFirestore(app);
-}
+// Firestore — plain getFirestore works correctly on React Native.
+// NOTE: persistentLocalCache (IndexedDB) is NOT supported on React Native and
+// crashes the app on startup. Offline resilience is handled at the store layer
+// via Zustand + AsyncStorage (all writes are fire-and-forget with local state
+// as source of truth, so data survives offline and syncs when reconnected).
+export const db = getFirestore(app);
 
-export const db = _db;
 export default app;

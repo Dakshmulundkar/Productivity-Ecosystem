@@ -171,8 +171,11 @@ const TaskCard = memo(function TaskCard({
         </View>
         <PriorityPill priority={task.priority} />
       </View>
-      <Text style={[styles.taskTitle, task.done ? styles.taskTitleDone : null]} numberOfLines={2}>
-        {task.title}
+      {/* Wrap title in an extra Text for Android textDecorationLine + custom font compatibility */}
+      <Text style={styles.taskTitle} numberOfLines={2}>
+        <Text style={task.done ? [styles.taskTitleDone, styles.taskTitleDoneDecoration] : undefined}>
+          {task.title}
+        </Text>
       </Text>
       <Text style={styles.taskDesc} numberOfLines={1}>{task.description}</Text>
       <View style={styles.taskCardBottom}>
@@ -652,7 +655,8 @@ const styles = StyleSheet.create({
   priorityPill: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 99, paddingVertical: 3, paddingHorizontal: 8 },
   priorityPillText: { fontFamily: FontFamily.inter.bold, fontSize: 10 },
   taskTitle: { fontFamily: FontFamily.poppins.bold, fontSize: 17, color: "#1a1a1a", lineHeight: 22 },
-  taskTitleDone: { textDecorationLine: "line-through", color: "#aaa" },
+  taskTitleDone: { color: "#aaa" },  // fontFamily stays, decoration on wrapper below
+  taskTitleDoneDecoration: { textDecorationLine: "line-through" },
   taskDesc: { fontFamily: FontFamily.inter.regular, fontSize: 12, color: "#888" },
   taskCardBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4 },
   statusBadge: { flexDirection: "row", alignItems: "center", gap: 5 },

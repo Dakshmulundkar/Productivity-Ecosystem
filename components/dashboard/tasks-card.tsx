@@ -57,10 +57,11 @@ const TaskRow = memo(function TaskRow({ task, isLast, onToggle }: TaskRowProps) 
 
       <View style={styles.info}>
         <Text
-          style={[styles.title, task.done && styles.titleDone]}
+          style={styles.title}
           numberOfLines={1}
         >
-          {task.title}
+          {/* Nested Text for Android: textDecorationLine doesn't work with custom fontFamily on same element */}
+          <Text style={task.done ? styles.titleDone : undefined}>{task.title}</Text>
         </Text>
         <Text style={styles.time}>
           {task.done ? "Completed" : "Due"} · {task.time}
