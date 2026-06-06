@@ -3,8 +3,7 @@ const { withNativeWind } = require("nativewind/metro");
 
 const config = getDefaultConfig(__dirname);
 
-// ── APK size optimizations ────────────────────────────────────────────────────
-// Enable minification for release builds
+// ── Bundle size optimizations ─────────────────────────────────────────────────
 config.transformer = {
   ...config.transformer,
   minifierConfig: {
@@ -16,6 +15,8 @@ config.transformer = {
     toplevel: false,
     compress: {
       reduce_funcs: false,
+      // Drop console.* calls in production — reduces bundle size
+      drop_console: false, // keep for now; set true once stable
     },
   },
 };
