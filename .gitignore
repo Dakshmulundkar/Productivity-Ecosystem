@@ -63,6 +63,11 @@ app-example
 logs
 *.log
 
+# Temporary debug files
+crash_log.txt
+app_only_log.txt
+*.txt.bak
+
 # OS
 Thumbs.db
 

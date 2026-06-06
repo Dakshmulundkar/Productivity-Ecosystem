@@ -86,7 +86,6 @@ const config: any = {
   },
   plugins: [
     "expo-router",
-    "expo-av",
     [
       "expo-notifications",
       {
