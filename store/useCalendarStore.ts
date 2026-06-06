@@ -135,8 +135,12 @@ async function scheduleEventNotifications(
 
 async function cancelEventNotifications(event: CalEvent): Promise<void> {
   if (Platform.OS === "web") return;
-  if (event.notifId30min) await Notifications.cancelScheduledNotificationAsync(event.notifId30min).catch(() => {});
-  if (event.notifIdAlarm) await Notifications.cancelScheduledNotificationAsync(event.notifIdAlarm).catch(() => {});
+  try {
+    if (event.notifId30min) await Notifications.cancelScheduledNotificationAsync(event.notifId30min).catch(() => {});
+    if (event.notifIdAlarm) await Notifications.cancelScheduledNotificationAsync(event.notifIdAlarm).catch(() => {});
+  } catch (e) {
+    // Expected in Expo Go
+  }
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -186,7 +190,21 @@ export const useCalendarStore = create<CalendarStore>()(
           collection(db, "users", userId, "calendarEvents"),
           (snap) => {
             const serverEvents = snap.docs.map(d => d.data() as CalEvent);
-            set({ events: serverEvents });
+            set((state) => {
+              // Merge server events with local events, preserving local notification IDs
+              // because those are never stored in Firestore (they're device-local)
+              const localMap = new Map(state.events.map(e => [e.id, e]));
+              const merged = serverEvents.map(serverEvent => {
+                const local = localMap.get(serverEvent.id);
+                return {
+                  ...serverEvent,
+                  // Keep local notification IDs if they exist
+                  notifId30min: local?.notifId30min ?? serverEvent.notifId30min,
+                  notifIdAlarm: local?.notifIdAlarm ?? serverEvent.notifIdAlarm,
+                };
+              });
+              return { events: merged };
+            });
           },
           (error) => console.error("[CalendarStore] sync error:", error)
         );

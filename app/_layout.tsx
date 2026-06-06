@@ -130,7 +130,6 @@ export default function RootLayout() {
   // ── Global Focus Timer Sync ──
   useEffect(() => {
     const sync = useFocusStore.getState().syncTimer;
-    const isRunning = useFocusStore.getState().isRunning;
     
     // Initial sync
     sync();

@@ -496,7 +496,7 @@ export const HabitReminderPicker = memo(function HabitReminderPicker({
 
 const styles = StyleSheet.create({
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill as object,
     backgroundColor: "rgba(0,0,0,0.55)",
   },
   sheet: {

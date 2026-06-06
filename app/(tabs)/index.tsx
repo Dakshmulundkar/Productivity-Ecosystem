@@ -158,11 +158,11 @@ export default function HomeScreen() {
 
   // ── Filtered tasks — Optimized for zero-lag ──
   const filteredTasks = useMemo((): DashTask[] => {
-    // console.log("[Performance] Re-calculating tasks...");
     const filtered = storeTasks.filter((t) => {
       if (activeFilter === "All") return !t.done;
-      if (activeFilter === "Tomorrow") return t.dueDateISO === tomorrowISO;
-      return t.dueDateISO === todayISO; // "Today"
+      if (activeFilter === "Tomorrow") return t.dueDateISO === tomorrowISO && !t.done;
+      // "Today": date-specific tasks for today + everyday tasks not yet done
+      return (t.dueDateISO === todayISO) || (t.dueDateISO === "everyday" && !t.done);
     });
     return filtered.map((t) => ({
       id: t.id,
@@ -174,7 +174,7 @@ export default function HomeScreen() {
   }, [storeTasks, activeFilter, todayISO, tomorrowISO]);
 
   const remainingCount = useMemo(() => filteredTasks.filter((t) => !t.done).length, [filteredTasks]);
-  const doneTodayCount = useMemo(() => storeTasks.filter((t) => t.done && t.dueDateISO === todayISO).length, [storeTasks, todayISO]);
+  const doneTodayCount = useMemo(() => storeTasks.filter((t) => t.done && (t.dueDateISO === todayISO || t.dueDateISO === "everyday")).length, [storeTasks, todayISO]);
 
   // ── Live habit rate (today) ──
   const habitRate = useMemo(() => {

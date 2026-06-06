@@ -9,7 +9,14 @@ import { initializeAuth, getAuth } from "firebase/auth";
 // @ts-ignore - getReactNativePersistence is sometimes not exported in the main entry point's types
 import { getReactNativePersistence } from "firebase/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getFirestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  getFirestore,
+  persistentLocalCache,
+  CACHE_SIZE_UNLIMITED,
+  memoryLocalCache,
+} from "firebase/firestore";
+import { Platform } from "react-native";
 
 const firebaseConfig = {
   apiKey:            process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? "",
@@ -23,18 +30,35 @@ const firebaseConfig = {
 // Prevent duplicate initialization
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// In React Native, we must use initializeAuth with getReactNativePersistence
-// to ensure the user stays logged in after the app is closed.
-let _auth;
+// Auth — must use initializeAuth with AsyncStorage persistence on React Native
+// so the user stays logged in after the app is closed.
+// initializeAuth throws on hot-reload (already initialized), so we fall back to getAuth.
+let _auth: ReturnType<typeof getAuth>;
 try {
-  _auth = getAuth(app);
-} catch (e) {
   _auth = initializeAuth(app, {
     persistence: getReactNativePersistence(AsyncStorage),
   });
+} catch (e) {
+  _auth = getAuth(app);
 }
 
 export const auth = _auth;
 
-export const db   = getFirestore(app);
+// Firestore — enable offline persistence so all reads/writes work offline
+// and sync automatically when connectivity is restored.
+let _db: ReturnType<typeof getFirestore>;
+try {
+  _db = initializeFirestore(app, {
+    localCache: Platform.OS === "web"
+      ? memoryLocalCache()
+      : persistentLocalCache({
+          cacheSizeBytes: CACHE_SIZE_UNLIMITED,
+        }),
+  });
+} catch (e) {
+  // Already initialized (hot reload) — get the existing instance
+  _db = getFirestore(app);
+}
+
+export const db = _db;
 export default app;

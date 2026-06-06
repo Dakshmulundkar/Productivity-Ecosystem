@@ -12,6 +12,8 @@ import {
   FlatList,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import Animated, {
   FadeInDown,
@@ -27,16 +29,7 @@ import { useCalendarStore, type CalEvent, type EventCategory } from "@/store/use
 import * as DocumentPicker from "expo-document-picker";
 import * as Notifications from "expo-notifications";
 
-// Request notification permissions on mount
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Notification handler is already configured in lib/notifications.ts — do not duplicate here.
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -134,13 +127,13 @@ const WheelColumn = memo(function WheelColumn({
   }, []);
 
   const handleScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    isScrolling.current = true;
     const offset = e.nativeEvent.contentOffset.y;
     const index = Math.round(offset / ITEM_HEIGHT);
     const clamped = Math.max(0, Math.min(index, items.length - 1));
-    
-    // Virtual haptics while scrolling
-    if (clamped !== selectedIndex && !isScrolling.current) {
-        // We only want to trigger this if it's a new index
+    // Trigger haptic only when crossing a new item boundary while scrolling
+    if (clamped !== selectedIndex) {
+      Haptics.selectionAsync();
     }
   }, [items.length, selectedIndex]);
 
@@ -490,6 +483,7 @@ export default function CalendarScreen() {
   const [formAlarmEnabled, setFormAlarmEnabled] = useState(true);
   const [formAlarmSoundUri, setFormAlarmSoundUri] = useState<string | undefined>(undefined);
   const [formAlarmSoundName, setFormAlarmSoundName] = useState("Default");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fabScale = useSharedValue(1);
   const fabStyle = useAnimatedStyle(() => ({ transform: [{ scale: fabScale.value }] }));
@@ -554,6 +548,7 @@ export default function CalendarScreen() {
   }, [openSheet]);
 
   const handleAddEvent = useCallback(async () => {
+    if (isSubmitting) return;
     if (!formTitle.trim()) {
       Alert.alert("Title required", "Please enter an event title.");
       return;
@@ -576,17 +571,24 @@ export default function CalendarScreen() {
       ? "All day"
       : `${HOURS[formHour]}:${MINUTES[formMinute]} ${PERIODS[formPeriod]}`;
 
-    await addEvent({
-      title: formTitle.trim(),
-      time: timeStr,
-      location: formLocation.trim() || "—",
-      category: formCategory,
-      date: toISO(selectedDate),
-      alarmEnabled: formAlarmEnabled,
-      alarmSoundUri: formAlarmEnabled ? formAlarmSoundUri : undefined,
-    });
-    setShowSheet(false);
-  }, [formTitle, formHour, formMinute, formPeriod, formAllDay, formLocation, formCategory,
+    try {
+      setIsSubmitting(true);
+      await addEvent({
+        title: formTitle.trim(),
+        time: timeStr,
+        location: formLocation.trim() || "—",
+        category: formCategory,
+        date: toISO(selectedDate),
+        alarmEnabled: formAlarmEnabled,
+        alarmSoundUri: formAlarmEnabled ? formAlarmSoundUri : undefined,
+      });
+      setShowSheet(false);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to save event. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [isSubmitting, formTitle, formHour, formMinute, formPeriod, formAllDay, formLocation, formCategory,
       selectedDate, formAlarmEnabled, formAlarmSoundUri, addEvent]);
 
   const handleViewChange = useCallback((v: ViewMode) => setViewMode(v), []);
@@ -624,121 +626,141 @@ export default function CalendarScreen() {
 
       {/* Add Event Sheet */}
       <Modal visible={showSheet} transparent animationType="slide" onRequestClose={() => setShowSheet(false)}>
-        <Pressable style={sheetStyles.overlay} onPress={() => setShowSheet(false)} />
-        <View style={[sheetStyles.sheet, { paddingBottom: insets.bottom + 24 }]}>
-          <View style={sheetStyles.handle} />
-          <View style={sheetStyles.titleRow}>
-            <Calendar size={18} color="#b8a9f0" />
-            <Text style={sheetStyles.title}>New Event</Text>
-          </View>
-          <Text style={sheetStyles.dateLabel}>
-            {selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
-          </Text>
-
-          <TextInput
-            style={sheetStyles.input}
-            placeholder="Event title"
-            placeholderTextColor="#555"
-            value={formTitle}
-            onChangeText={setFormTitle}
-          />
-
-          {/* Time picker */}
-          <View style={sheetStyles.timeSection}>
-            <View style={sheetStyles.timeLabelRow}>
-              <Clock size={14} color="#888" />
-              <Text style={sheetStyles.label}>TIME</Text>
-              <Pressable
-                onPress={() => { Haptics.selectionAsync(); setFormAllDay(v => !v); }}
-                style={[sheetStyles.allDayPill, formAllDay && sheetStyles.allDayPillActive]}
-              >
-                <Text style={[sheetStyles.allDayText, formAllDay && sheetStyles.allDayTextActive]}>
-                  All day
-                </Text>
-              </Pressable>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <Pressable style={sheetStyles.overlay} onPress={() => setShowSheet(false)} />
+          <View style={[sheetStyles.sheet, { paddingBottom: insets.bottom + 24 }]}>
+            <View style={sheetStyles.handle} />
+            <View style={sheetStyles.titleRow}>
+              <Calendar size={18} color="#b8a9f0" />
+              <Text style={sheetStyles.title}>New Event</Text>
             </View>
-            {!formAllDay && (
-              <TimePicker
-                hour={formHour}
-                minute={formMinute}
-                period={formPeriod}
-                onHourChange={setFormHour}
-                onMinuteChange={setFormMinute}
-                onPeriodChange={setFormPeriod}
+            <Text style={sheetStyles.dateLabel}>
+              {selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+            </Text>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{ gap: 12, paddingBottom: 8 }}
+            >
+              <TextInput
+                style={sheetStyles.input}
+                placeholder="Event title"
+                placeholderTextColor="#555"
+                value={formTitle}
+                onChangeText={setFormTitle}
+                editable={!isSubmitting}
+                returnKeyType="next"
               />
-            )}
-          </View>
 
-          <TextInput
-            style={sheetStyles.input}
-            placeholder="Location (optional)"
-            placeholderTextColor="#555"
-            value={formLocation}
-            onChangeText={setFormLocation}
-          />
+              {/* Time picker */}
+              <View style={sheetStyles.timeSection}>
+                <View style={sheetStyles.timeLabelRow}>
+                  <Clock size={14} color="#888" />
+                  <Text style={sheetStyles.label}>TIME</Text>
+                  <Pressable
+                    onPress={() => { Haptics.selectionAsync(); setFormAllDay(v => !v); }}
+                    style={[sheetStyles.allDayPill, formAllDay && sheetStyles.allDayPillActive]}
+                  >
+                    <Text style={[sheetStyles.allDayText, formAllDay && sheetStyles.allDayTextActive]}>
+                      All day
+                    </Text>
+                  </Pressable>
+                </View>
+                {!formAllDay && (
+                  <TimePicker
+                    hour={formHour}
+                    minute={formMinute}
+                    period={formPeriod}
+                    onHourChange={setFormHour}
+                    onMinuteChange={setFormMinute}
+                    onPeriodChange={setFormPeriod}
+                  />
+                )}
+              </View>
 
-          <Text style={sheetStyles.label}>Category</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={sheetStyles.categoryRow}>
-            {(Object.keys(CATEGORY_COLORS) as EventCategory[]).map((cat) => {
-              const isActive = formCategory === cat;
-              const color = CATEGORY_COLORS[cat];
-              return (
+              <TextInput
+                style={sheetStyles.input}
+                placeholder="Location (optional)"
+                placeholderTextColor="#555"
+                value={formLocation}
+                onChangeText={setFormLocation}
+                editable={!isSubmitting}
+              />
+
+              <Text style={sheetStyles.label}>Category</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={sheetStyles.categoryRow}>
+                {(Object.keys(CATEGORY_COLORS) as EventCategory[]).map((cat) => {
+                  const isActive = formCategory === cat;
+                  const color = CATEGORY_COLORS[cat];
+                  return (
+                    <Pressable
+                      key={cat}
+                      onPress={() => { Haptics.selectionAsync(); setFormCategory(cat); }}
+                      style={[
+                        sheetStyles.categoryPill,
+                        isActive ? { backgroundColor: color } : sheetStyles.categoryPillInactive,
+                      ]}
+                    >
+                      <Text style={[sheetStyles.categoryText, isActive ? { color: "#fff" } : sheetStyles.categoryTextInactive]}>
+                        {cat}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              {/* ── Alarm section ── */}
+              <View style={sheetStyles.alarmRow}>
+                <View style={sheetStyles.alarmLeft}>
+                  <Text style={sheetStyles.alarmIcon}>🔔</Text>
+                  <View>
+                    <Text style={sheetStyles.alarmTitle}>Alarm</Text>
+                    <Text style={sheetStyles.alarmSub}>
+                      {formAlarmEnabled
+                        ? formAllDay
+                          ? "Reminder at 9:00 AM"
+                          : "30 min before + at event time"
+                        : "No alarm"}
+                    </Text>
+                  </View>
+                </View>
                 <Pressable
-                  key={cat}
-                  onPress={() => { Haptics.selectionAsync(); setFormCategory(cat); }}
-                  style={[
-                    sheetStyles.categoryPill,
-                    isActive ? { backgroundColor: color } : sheetStyles.categoryPillInactive,
-                  ]}
+                  onPress={() => { Haptics.selectionAsync(); setFormAlarmEnabled(v => !v); }}
+                  style={[sheetStyles.alarmToggle, formAlarmEnabled && sheetStyles.alarmToggleOn]}
                 >
-                  <Text style={[sheetStyles.categoryText, isActive ? { color: "#fff" } : sheetStyles.categoryTextInactive]}>
-                    {cat}
+                  <Text style={[sheetStyles.alarmToggleText, formAlarmEnabled && sheetStyles.alarmToggleTextOn]}>
+                    {formAlarmEnabled ? "On" : "Off"}
                   </Text>
                 </Pressable>
-              );
-            })}
-          </ScrollView>
+              </View>
 
-          {/* ── Alarm section ── */}
-          <View style={sheetStyles.alarmRow}>
-            <View style={sheetStyles.alarmLeft}>
-              <Text style={sheetStyles.alarmIcon}>🔔</Text>
-              <View>
-                <Text style={sheetStyles.alarmTitle}>Alarm</Text>
-                <Text style={sheetStyles.alarmSub}>
-                  {formAlarmEnabled
-                    ? formAllDay
-                      ? "Reminder at 9:00 AM"
-                      : "30 min before + at event time"
-                    : "No alarm"}
+              {/* Sound picker — only shown when alarm is on */}
+              {formAlarmEnabled && (
+                <Pressable onPress={handlePickSound} style={sheetStyles.soundRow}>
+                  <Text style={sheetStyles.soundLabel}>🎵  Alarm sound</Text>
+                  <View style={sheetStyles.soundRight}>
+                    <Text style={sheetStyles.soundName} numberOfLines={1}>{formAlarmSoundName}</Text>
+                    <Text style={sheetStyles.soundChevron}>›</Text>
+                  </View>
+                </Pressable>
+              )}
+
+              <Pressable
+                onPress={handleAddEvent}
+                disabled={isSubmitting}
+                style={[sheetStyles.saveBtn, isSubmitting && sheetStyles.saveBtnDisabled]}
+              >
+                <Text style={sheetStyles.saveBtnText}>
+                  {isSubmitting ? "Saving..." : "Add Event"}
                 </Text>
-              </View>
-            </View>
-            <Pressable
-              onPress={() => { Haptics.selectionAsync(); setFormAlarmEnabled(v => !v); }}
-              style={[sheetStyles.alarmToggle, formAlarmEnabled && sheetStyles.alarmToggleOn]}
-            >
-              <Text style={[sheetStyles.alarmToggleText, formAlarmEnabled && sheetStyles.alarmToggleTextOn]}>
-                {formAlarmEnabled ? "On" : "Off"}
-              </Text>
-            </Pressable>
+              </Pressable>
+            </ScrollView>
           </View>
-
-          {/* Sound picker — only shown when alarm is on */}
-          {formAlarmEnabled && (
-            <Pressable onPress={handlePickSound} style={sheetStyles.soundRow}>
-              <Text style={sheetStyles.soundLabel}>🎵  Alarm sound</Text>
-              <View style={sheetStyles.soundRight}>
-                <Text style={sheetStyles.soundName} numberOfLines={1}>{formAlarmSoundName}</Text>
-                <Text style={sheetStyles.soundChevron}>›</Text>
-              </View>
-            </Pressable>
-          )}
-
-          <Pressable onPress={handleAddEvent} style={sheetStyles.saveBtn}>
-            <Text style={sheetStyles.saveBtnText}>Add Event</Text>
-          </Pressable>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -821,6 +843,7 @@ const sheetStyles = StyleSheet.create({
   categoryText: { fontFamily: FontFamily.inter.semiBold, fontSize: 13 },
   categoryTextInactive: { color: "#666" },
   saveBtn: { backgroundColor: "#b8a9f0", borderRadius: 14, padding: 16, alignItems: "center", marginTop: 4 },
+  saveBtnDisabled: { opacity: 0.5 },
   saveBtnText: { fontFamily: FontFamily.poppins.bold, fontSize: 14, color: "#1a1a1a" },
 
   // Time section

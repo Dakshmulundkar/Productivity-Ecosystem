@@ -7,7 +7,11 @@ export const TaskSchema = z.object({
   title: z.string().min(1, "Title is required").max(100),
   description: z.string().max(500).optional().default(""),
   priority: PrioritySchema,
-  dueDateISO: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format"),
+  // "everyday" = recurring task shown on all dates until marked done
+  dueDateISO: z.string().refine(
+    (v) => v === "everyday" || /^\d{4}-\d{2}-\d{2}$/.test(v),
+    "Invalid date format"
+  ),
   done: z.boolean(),
   createdAt: z.number(),
 });

@@ -77,7 +77,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
             </View>
             <Text style={[
               styles.tabLabel, 
-              { color, fontFamily: isFocused ? FontFamily.inter.bold : FontFamily.inter.medium }
+              { color, fontFamily: isFocused ? FontFamily.inter.bold : FontFamily.inter.regular }
             ]}>
               {tab.label}
             </Text>
@@ -107,25 +107,30 @@ export default function TabLayout() {
     }
   }, [isLoading, isSignedIn, router]);
 
-  // ── Data Synchronization — Senior Dev Implementation ──
-  // We subscribe centrally in the Layout so all tabs have fresh data immediately.
+  // ── Data Synchronization ──
+  // Subscribe centrally so all tabs have fresh data immediately.
+  // Also adds missing cleanup for calendarStore.
   React.useEffect(() => {
-    if (isSignedIn && user?.id) {
-      subHabits(user.id);
-      subTasks(user.id);
-      subCal(user.id);
-      return () => {
-        unsubHabits();
-        unsubTasks();
-      };
-    }
+    if (!isSignedIn || !user?.id) return;
+
+    // Each store's subscribe already calls unsub internally before re-subscribing
+    subHabits(user.id);
+    subTasks(user.id);
+    subCal(user.id);
+
+    return () => {
+      unsubHabits();
+      unsubTasks();
+      // Unsubscribe calendar store on logout / layout unmount
+      useCalendarStore.getState()._unsubscribe?.();
+    };
   }, [isSignedIn, user?.id, subHabits, unsubHabits, subTasks, unsubTasks, subCal]);
 
   if (isLoading) return null; // or a loading spinner
 
   return (
     <Tabs
-      tabBar={(props) => <CustomTabBar {...props} />}
+      tabBar={(props: any) => <CustomTabBar {...props} />}
       screenOptions={{ headerShown: false }}
     >
       <Tabs.Screen name="index" />
@@ -175,7 +180,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#000000",
   },
   tabLabel: {
-    fontFamily: FontFamily.inter.medium,
+    fontFamily: FontFamily.inter.regular,
     fontSize: 9,
   },
 });

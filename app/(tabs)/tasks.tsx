@@ -1,14 +1,17 @@
-import React, { useState, useCallback, memo, useMemo } from "react";
+import React, { useState, useCallback, memo, useMemo, useRef } from "react";
 import {
   View,
   Text,
   ScrollView,
+  FlatList,
   StyleSheet,
   StatusBar,
   Pressable,
   Modal,
   TextInput,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import Animated, {
   FadeInDown,
@@ -27,6 +30,7 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
+  Repeat,
 } from "lucide-react-native";
 import { FontFamily } from "@/lib/_core/theme";
 import { useTaskStore } from "@/store/useTaskStore";
@@ -41,11 +45,14 @@ const MONTH_NAMES = [
 ];
 const DAY_NAMES_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// Number of days to render on each side of today for the infinite strip
+const DATE_WINDOW = 180;
+
 function toISO(d: Date): string { return d.toISOString().slice(0, 10); }
 function addDays(d: Date, n: number): Date { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
-/** Format ISO date for display in the due pill, e.g. "Today", "Tomorrow", or "Jun 15" */
 function formatDueLabel(iso: string): string {
+  if (iso === "everyday") return "Everyday";
   const todayISO = toISO(new Date());
   const tomorrowISO = toISO(addDays(new Date(), 1));
   if (iso === todayISO) return "Today";
@@ -60,36 +67,60 @@ const PRIORITY_STYLES: Record<Priority, { bg: string; text: string; label: strin
   High:   { bg: "#fee2e2", text: "#991b1b", label: "HIGH" },
 };
 
-// ─── Date strip ───────────────────────────────────────────────────────────────
+// ─── Date strip item ──────────────────────────────────────────────────────────
 
-function buildDateStrip() {
-  const today = new Date();
-  const result = [];
-  for (let i = -3; i <= 10; i++) {
-    const d = addDays(today, i);
-    result.push({
-      dayNum: d.getDate(),
-      dayName: DAYS_OF_WEEK[d.getDay()],
-      isToday: i === 0,
-      key: toISO(d),
-    });
-  }
-  return result;
+interface DateItem {
+  key: string;       // YYYY-MM-DD
+  dayNum: number;
+  dayName: string;
+  isToday: boolean;
 }
 
-const DATE_STRIP = buildDateStrip();
+function buildDateItem(offsetFromToday: number): DateItem {
+  const d = addDays(new Date(), offsetFromToday);
+  return {
+    key: toISO(d),
+    dayNum: d.getDate(),
+    dayName: DAYS_OF_WEEK[d.getDay()],
+    isToday: offsetFromToday === 0,
+  };
+}
+
+// Pre-build DATE_WINDOW days in each direction
+function buildDateRange(): DateItem[] {
+  const items: DateItem[] = [];
+  for (let i = -DATE_WINDOW; i <= DATE_WINDOW; i++) {
+    items.push(buildDateItem(i));
+  }
+  return items;
+}
+
+const DATE_ITEMS = buildDateRange();
+const TODAY_INDEX = DATE_WINDOW; // index of today in the array
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 const DatePill = memo(function DatePill({
-  dayNum, dayName, isSelected, onPress,
+  item, isSelected, onPress,
 }: {
-  dayNum: number; dayName: string; isSelected: boolean; onPress: () => void;
+  item: DateItem; isSelected: boolean; onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.datePill, isSelected ? styles.datePillActive : null]}>
-      <Text style={[styles.datePillNum, isSelected ? styles.datePillNumActive : null]}>{dayNum}</Text>
-      <Text style={[styles.datePillName, isSelected ? styles.datePillNameActive : null]}>{dayName}</Text>
+    <Pressable
+      onPress={onPress}
+      style={[
+        styles.datePill,
+        isSelected ? styles.datePillActive : null,
+        item.isToday && !isSelected ? styles.datePillToday : null,
+      ]}
+    >
+      <Text style={[styles.datePillNum, isSelected ? styles.datePillNumActive : null]}>
+        {item.dayNum}
+      </Text>
+      <Text style={[styles.datePillName, isSelected ? styles.datePillNameActive : null]}>
+        {item.dayName}
+      </Text>
+      {item.isToday && !isSelected && <View style={styles.todayDot} />}
     </Pressable>
   );
 });
@@ -125,12 +156,18 @@ const TaskCard = memo(function TaskCard({
     onDelete(task.id);
   }, [task.id, onDelete]);
 
+  const isEveryday = task.dueDateISO === "everyday";
+
   return (
     <Animated.View style={[styles.taskCard, animStyle]}>
       <View style={styles.taskCardTop}>
-        <View style={styles.duePill}>
-          <CalendarDays size={10} color="#888" />
-          <Text style={styles.duePillText}>{formatDueLabel(task.dueDateISO)}</Text>
+        <View style={[styles.duePill, isEveryday && styles.duePillEveryday]}>
+          {isEveryday
+            ? <Repeat size={10} color="#6d4fc9" />
+            : <CalendarDays size={10} color="#888" />}
+          <Text style={[styles.duePillText, isEveryday && styles.duePillTextEveryday]}>
+            {formatDueLabel(task.dueDateISO)}
+          </Text>
         </View>
         <PriorityPill priority={task.priority} />
       </View>
@@ -191,8 +228,7 @@ const PrioritySelector = memo(function PrioritySelector({
 // ─── Inline Calendar Picker ───────────────────────────────────────────────────
 
 const CalendarPicker = memo(function CalendarPicker({
-  selectedDate,
-  onSelect,
+  selectedDate, onSelect,
 }: {
   selectedDate: Date | null;
   onSelect: (d: Date) => void;
@@ -242,30 +278,27 @@ const CalendarPicker = memo(function CalendarPicker({
         {cells.map(cell => {
           const isToday = cell.key === todayKey;
           const isSelected = cell.key === selectedKey;
-          const isPast = cell.day !== null && cell.key < todayKey;
           return (
             <Pressable
               key={cell.key}
               style={calStyles.cell}
               onPress={() => {
-                if (!cell.day || isPast) return;
+                if (!cell.day) return;
                 Haptics.selectionAsync();
                 onSelect(new Date(viewYear, viewMonth, cell.day));
               }}
-              disabled={!cell.day || isPast}
+              disabled={!cell.day}
             >
               {cell.day !== null && (
                 <View style={[
                   calStyles.dayCircle,
                   isSelected && calStyles.dayCircleSelected,
                   isToday && !isSelected && calStyles.dayCircleToday,
-                  isPast && calStyles.dayCirclePast,
                 ]}>
                   <Text style={[
                     calStyles.dayText,
                     isSelected && calStyles.dayTextSelected,
                     isToday && !isSelected && calStyles.dayTextToday,
-                    isPast && calStyles.dayTextPast,
                   ]}>
                     {cell.day}
                   </Text>
@@ -291,11 +324,9 @@ const calStyles = StyleSheet.create({
   dayCircle: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   dayCircleSelected: { backgroundColor: "#b8a9f0" },
   dayCircleToday: { borderWidth: 1.5, borderColor: "#b8a9f0" },
-  dayCirclePast: {},
   dayText: { fontFamily: FontFamily.inter.regular, fontSize: 13, color: "#ccc" },
   dayTextSelected: { color: "#1a1a1a", fontFamily: FontFamily.inter.bold },
   dayTextToday: { color: "#b8a9f0", fontFamily: FontFamily.inter.bold },
-  dayTextPast: { color: "#444" },
 });
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -309,17 +340,24 @@ export default function TasksScreen() {
   const toggleTask = useTaskStore((s) => s.toggleTask);
   const deleteTask = useTaskStore((s) => s.deleteTask);
 
-  const [selectedDateKey, setSelectedDateKey] = useState<string>(
-    DATE_STRIP.find((d) => d.isToday)?.key ?? DATE_STRIP[3].key,
-  );
+  const todayKey = useMemo(() => toISO(new Date()), []);
+  const stripRef = useRef<FlatList>(null);
+
+  const [selectedDateKey, setSelectedDateKey] = useState<string>(todayKey);
   const [showSheet, setShowSheet] = useState(false);
   const [formTitle, setFormTitle] = useState("");
   const [formDesc, setFormDesc] = useState("");
   const [formPriority, setFormPriority] = useState<Priority>("Medium");
-  // "today" | "tomorrow" | "custom"
-  const [formDueDateMode, setFormDueDateMode] = useState<"today" | "tomorrow" | "custom">("today");
+  // "today" | "everyday" | "custom"
+  const [formDueDateMode, setFormDueDateMode] = useState<"today" | "everyday" | "custom">("today");
   const [customDate, setCustomDate] = useState<Date | null>(null);
   const [showCalPicker, setShowCalPicker] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Scroll date strip to today on mount
+  const handleStripLayout = useCallback(() => {
+    stripRef.current?.scrollToIndex({ index: TODAY_INDEX, animated: false, viewPosition: 0.5 });
+  }, []);
 
   const handleToggle = useCallback((id: string) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -340,34 +378,38 @@ export default function TasksScreen() {
 
   const closeSheet = useCallback(() => setShowSheet(false), []);
 
-  const handleAddTask = useCallback(() => {
+  const handleAddTask = useCallback(async () => {
+    if (isSubmitting) return;
     if (!formTitle.trim()) {
       Alert.alert("Title required", "Please enter a task title.");
       return;
     }
     if (formDueDateMode === "custom" && !customDate) {
-      Alert.alert("Date required", "Please pick a custom date.");
+      Alert.alert("Date required", "Please pick a date.");
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    let dueDateISO: string;
-    if (formDueDateMode === "today") {
-      dueDateISO = toISO(new Date());
-    } else if (formDueDateMode === "tomorrow") {
-      dueDateISO = toISO(addDays(new Date(), 1));
-    } else {
-      dueDateISO = toISO(customDate!);
-    }
+    const dueDateISO =
+      formDueDateMode === "today"    ? toISO(new Date()) :
+      formDueDateMode === "everyday" ? "everyday" :
+      toISO(customDate!);
 
-    addTask({
-      title: formTitle.trim(),
-      description: formDesc.trim() || "No description",
-      priority: formPriority,
-      dueDateISO,
-    });
-    setShowSheet(false);
-  }, [formTitle, formDesc, formPriority, formDueDateMode, customDate, addTask]);
+    try {
+      setIsSubmitting(true);
+      await addTask({
+        title: formTitle.trim(),
+        description: formDesc.trim() || "No description",
+        priority: formPriority,
+        dueDateISO,
+      });
+      setShowSheet(false);
+    } catch (e: any) {
+      Alert.alert("Error", e?.message ?? "Failed to add task. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [isSubmitting, formTitle, formDesc, formPriority, formDueDateMode, customDate, addTask]);
 
   const handleSelectDate = useCallback((key: string) => {
     Haptics.selectionAsync();
@@ -376,20 +418,37 @@ export default function TasksScreen() {
 
   const handleSelectPriority = useCallback((p: Priority) => setFormPriority(p), []);
 
-  const pendingCount = tasks.filter((t) => !t.done).length;
+  const pendingCount = useMemo(() =>
+    tasks.filter((t) => !t.done && (t.dueDateISO === "everyday" || t.dueDateISO >= todayKey)).length,
+  [tasks, todayKey]);
 
-  // Filter tasks by selected date — direct ISO comparison, no label shifting
+  // Everyday tasks always show (undone). Date-specific tasks show on their date (done or undone).
   const visibleTasks = useMemo(() => {
-    return tasks.filter((t) => t.dueDateISO === selectedDateKey);
+    return tasks.filter((t) =>
+      t.dueDateISO === "everyday"
+        ? !t.done  // everyday tasks: show until completed
+        : t.dueDateISO === selectedDateKey  // date tasks: show on that date
+    );
   }, [tasks, selectedDateKey]);
 
-  // Label for the custom date button
   const customDateLabel = useMemo(() => {
     if (formDueDateMode === "custom" && customDate) {
       return customDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
     }
-    return "Custom";
+    return "Pick date";
   }, [formDueDateMode, customDate]);
+
+  const renderDateItem = useCallback(({ item }: { item: DateItem }) => (
+    <DatePill
+      item={item}
+      isSelected={selectedDateKey === item.key}
+      onPress={() => handleSelectDate(item.key)}
+    />
+  ), [selectedDateKey, handleSelectDate]);
+
+  const getItemLayout = useCallback((_: any, index: number) => ({
+    length: 62, offset: 62 * index, index,
+  }), []);
 
   return (
     <View style={styles.screen}>
@@ -412,20 +471,36 @@ export default function TasksScreen() {
           </Pressable>
         </Animated.View>
 
-        {/* Date strip */}
+        {/* Infinite date strip */}
         <Animated.View entering={FadeInDown.delay(60).duration(400)}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateStrip}>
-            {DATE_STRIP.map((d) => (
-              <DatePill
-                key={d.key}
-                dayNum={d.dayNum}
-                dayName={d.dayName}
-                isSelected={selectedDateKey === d.key}
-                onPress={() => handleSelectDate(d.key)}
-              />
-            ))}
-          </ScrollView>
+          <FlatList
+            ref={stripRef}
+            data={DATE_ITEMS}
+            horizontal
+            keyExtractor={(item) => item.key}
+            renderItem={renderDateItem}
+            getItemLayout={getItemLayout}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.dateStrip}
+            onLayout={handleStripLayout}
+            onScrollToIndexFailed={() => {
+              // Fallback: scroll after a small delay
+              setTimeout(() => {
+                stripRef.current?.scrollToIndex({ index: TODAY_INDEX, animated: false, viewPosition: 0.5 });
+              }, 100);
+            }}
+            initialScrollIndex={TODAY_INDEX}
+          />
         </Animated.View>
+
+        {/* Selected date label */}
+        <Text style={styles.dateLabel}>
+          {selectedDateKey === todayKey
+            ? "Today"
+            : new Date(selectedDateKey + "T00:00:00").toLocaleDateString("en-US", {
+                weekday: "long", month: "long", day: "numeric",
+              })}
+        </Text>
 
         {/* Task list */}
         {visibleTasks.map((task, i) => (
@@ -444,71 +519,99 @@ export default function TasksScreen() {
 
       {/* Create Task Sheet */}
       <Modal visible={showSheet} transparent animationType="slide" onRequestClose={closeSheet}>
-        <Pressable style={styles.sheetOverlay} onPress={closeSheet} />
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>New Task</Text>
-          <TextInput
-            style={styles.sheetInput}
-            placeholder="Task title"
-            placeholderTextColor="#555"
-            value={formTitle}
-            onChangeText={setFormTitle}
-          />
-          <TextInput
-            style={[styles.sheetInput, styles.sheetInputMulti]}
-            placeholder="Description (optional)"
-            placeholderTextColor="#555"
-            value={formDesc}
-            onChangeText={setFormDesc}
-            multiline
-            numberOfLines={3}
-          />
-          <Text style={styles.sheetLabel}>Priority</Text>
-          <PrioritySelector selected={formPriority} onSelect={handleSelectPriority} />
-
-          <Text style={styles.sheetLabel}>Due Date</Text>
-          <View style={styles.prioritySelectorRow}>
-            {(["today", "tomorrow", "custom"] as const).map((mode) => {
-              const isActive = formDueDateMode === mode;
-              const label = mode === "today" ? "Today" : mode === "tomorrow" ? "Tomorrow" : customDateLabel;
-              return (
-                <Pressable
-                  key={mode}
-                  onPress={() => {
-                    setFormDueDateMode(mode);
-                    setShowCalPicker(mode === "custom");
-                  }}
-                  style={[
-                    styles.prioritySelectorPill,
-                    isActive ? styles.dueDateActive : styles.prioritySelectorPillInactive,
-                  ]}
-                >
-                  <Text style={[
-                    styles.prioritySelectorText,
-                    isActive ? styles.dueDateActiveText : styles.prioritySelectorTextInactive,
-                  ]}>
-                    {label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          {showCalPicker && (
-            <CalendarPicker
-              selectedDate={customDate}
-              onSelect={(date) => {
-                setCustomDate(date);
-                setShowCalPicker(false);
-              }}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <Pressable style={styles.sheetOverlay} onPress={closeSheet} />
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 24 }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>New Task</Text>
+            <TextInput
+              style={styles.sheetInput}
+              placeholder="Task title"
+              placeholderTextColor="#555"
+              value={formTitle}
+              onChangeText={setFormTitle}
+              editable={!isSubmitting}
+              returnKeyType="next"
             />
-          )}
+            <TextInput
+              style={[styles.sheetInput, styles.sheetInputMulti]}
+              placeholder="Description (optional)"
+              placeholderTextColor="#555"
+              value={formDesc}
+              onChangeText={setFormDesc}
+              multiline
+              numberOfLines={3}
+              editable={!isSubmitting}
+            />
+            <Text style={styles.sheetLabel}>Priority</Text>
+            <PrioritySelector selected={formPriority} onSelect={handleSelectPriority} />
 
-          <Pressable onPress={handleAddTask} style={styles.sheetSaveBtn}>
-            <Text style={styles.sheetSaveBtnText}>Save Task</Text>
-          </Pressable>
-        </View>
+            <Text style={styles.sheetLabel}>Due Date</Text>
+            <View style={styles.dueDateRow}>
+              {/* Today */}
+              <Pressable
+                onPress={() => { setFormDueDateMode("today"); setShowCalPicker(false); }}
+                style={[styles.dueDatePill, formDueDateMode === "today" && styles.dueDatePillActive]}
+              >
+                <Text style={[styles.dueDatePillText, formDueDateMode === "today" && styles.dueDatePillTextActive]}>
+                  Today
+                </Text>
+              </Pressable>
+
+              {/* Everyday */}
+              <Pressable
+                onPress={() => { setFormDueDateMode("everyday"); setShowCalPicker(false); }}
+                style={[styles.dueDatePill, styles.dueDatePillEveryday, formDueDateMode === "everyday" && styles.dueDatePillEverydayActive]}
+              >
+                <Repeat size={11} color={formDueDateMode === "everyday" ? "#fff" : "#6d4fc9"} strokeWidth={2} />
+                <Text style={[styles.dueDatePillText, styles.dueDatePillTextEveryday, formDueDateMode === "everyday" && styles.dueDatePillTextEverydayActive]}>
+                  Everyday
+                </Text>
+              </Pressable>
+
+              {/* Custom date */}
+              <Pressable
+                onPress={() => { setFormDueDateMode("custom"); setShowCalPicker(true); }}
+                style={[styles.dueDatePill, formDueDateMode === "custom" && styles.dueDatePillActive]}
+              >
+                <CalendarDays size={11} color={formDueDateMode === "custom" ? "#1a1a1a" : "#888"} strokeWidth={2} />
+                <Text style={[styles.dueDatePillText, formDueDateMode === "custom" && styles.dueDatePillTextActive]}>
+                  {customDateLabel}
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* Everyday hint */}
+            {formDueDateMode === "everyday" && (
+              <Text style={styles.everydayHint}>
+                This task will appear every day until you mark it as done.
+              </Text>
+            )}
+
+            {showCalPicker && (
+              <CalendarPicker
+                selectedDate={customDate}
+                onSelect={(date) => {
+                  setCustomDate(date);
+                  setShowCalPicker(false);
+                }}
+              />
+            )}
+
+            <Pressable
+              onPress={handleAddTask}
+              disabled={isSubmitting}
+              style={[styles.sheetSaveBtn, isSubmitting && styles.sheetSaveBtnDisabled]}
+            >
+              <Text style={styles.sheetSaveBtnText}>
+                {isSubmitting ? "Saving..." : "Save Task"}
+              </Text>
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -528,18 +631,24 @@ const styles = StyleSheet.create({
   newTaskBtn: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#1a1a1a", borderRadius: 99, paddingVertical: 9, paddingHorizontal: 16, alignSelf: "flex-start", marginTop: 4 },
   newTaskBtnText: { fontFamily: FontFamily.inter.semiBold, fontSize: 13, color: "#fff" },
 
-  dateStrip: { paddingVertical: 4, gap: 6, paddingRight: 8 },
-  datePill: { alignItems: "center", justifyContent: "center", width: 54, paddingVertical: 8, borderRadius: 12, backgroundColor: "transparent" },
+  dateStrip: { paddingVertical: 4, paddingHorizontal: 8, gap: 6 },
+  datePill: { width: 56, alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 14, backgroundColor: "transparent" },
   datePillActive: { backgroundColor: "#1a1a1a" },
+  datePillToday: { backgroundColor: "#f0eef9" },
   datePillNum: { fontFamily: FontFamily.poppins.bold, fontSize: 20, color: "#1a1a1a", lineHeight: 24 },
   datePillNumActive: { color: "#fff" },
   datePillName: { fontFamily: FontFamily.inter.regular, fontSize: 11, color: "#888" },
   datePillNameActive: { color: "#fff" },
+  todayDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#b8a9f0", marginTop: 2 },
+
+  dateLabel: { fontFamily: FontFamily.inter.semiBold, fontSize: 13, color: "#888", marginTop: -4 },
 
   taskCard: { backgroundColor: "#fff", borderRadius: 20, padding: 16, gap: 8 },
   taskCardTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   duePill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#f5f5f5", borderRadius: 99, paddingVertical: 3, paddingHorizontal: 8 },
+  duePillEveryday: { backgroundColor: "#ede9fe" },
   duePillText: { fontFamily: FontFamily.inter.regular, fontSize: 11, color: "#888" },
+  duePillTextEveryday: { color: "#6d4fc9", fontFamily: FontFamily.inter.semiBold },
   priorityPill: { flexDirection: "row", alignItems: "center", gap: 4, borderRadius: 99, paddingVertical: 3, paddingHorizontal: 8 },
   priorityPillText: { fontFamily: FontFamily.inter.bold, fontSize: 10 },
   taskTitle: { fontFamily: FontFamily.poppins.bold, fontSize: 17, color: "#1a1a1a", lineHeight: 22 },
@@ -565,8 +674,20 @@ const styles = StyleSheet.create({
   prioritySelectorPillInactive: { backgroundColor: "#2a2a2a" },
   prioritySelectorText: { fontFamily: FontFamily.inter.semiBold, fontSize: 13 },
   prioritySelectorTextInactive: { color: "#666" },
+
+  // Due date pills
+  dueDateRow: { flexDirection: "row", gap: 8 },
+  dueDatePill: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 10, borderRadius: 12, backgroundColor: "#2a2a2a" },
+  dueDatePillActive: { backgroundColor: "#b8a9f0" },
+  dueDatePillText: { fontFamily: FontFamily.inter.semiBold, fontSize: 12, color: "#666" },
+  dueDatePillTextActive: { color: "#1a1a1a" },
+  dueDatePillEveryday: { borderWidth: 1, borderColor: "#6d4fc9" },
+  dueDatePillEverydayActive: { backgroundColor: "#6d4fc9", borderColor: "#6d4fc9" },
+  dueDatePillTextEveryday: { color: "#b8a9f0" },
+  dueDatePillTextEverydayActive: { color: "#fff" },
+  everydayHint: { fontFamily: FontFamily.inter.regular, fontSize: 11, color: "#6d4fc9", textAlign: "center", marginTop: -4 },
+
   sheetSaveBtn: { backgroundColor: "#b8a9f0", borderRadius: 14, padding: 16, alignItems: "center", marginTop: 4 },
+  sheetSaveBtnDisabled: { opacity: 0.5 },
   sheetSaveBtnText: { fontFamily: FontFamily.poppins.bold, fontSize: 14, color: "#1a1a1a" },
-  dueDateActive: { backgroundColor: "#b8a9f0" },
-  dueDateActiveText: { color: "#1a1a1a" },
 });

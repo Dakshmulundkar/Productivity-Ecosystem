@@ -80,9 +80,14 @@ firebase-debug.log
 firestore-debug.log
 .firebaserc
 
-# Markdown files (except README.md)
-app_prompt_v2.md
-design.md
-todo.md
-habits_feature_prompt.md
+# Markdown files — ignore ALL .md files except README.md
+*.md
+!README.md
+
+# Kiro IDE files
 .kiro/
+
+# Stray prompt/notes files
+*.prompt.md
+*_prompt*.md
+*_feature_prompt*.md

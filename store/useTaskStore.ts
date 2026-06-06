@@ -19,11 +19,11 @@ import {
   orderBy,
   query,
   serverTimestamp,
-  type Unsubscribe,
-  limit,
 } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import { cleanFirestoreData } from "@/lib/utils";
+
+function toISO(d: Date): string { return d.toISOString().slice(0, 10); }
 
 export type Priority = "Low" | "Medium" | "High";
 import { TaskSchema, type Task } from "@/shared/schemas";
@@ -33,7 +33,9 @@ import { Alert } from "react-native";
 interface TaskStore {
   tasks: Task[];
   _unsubscribe: (() => void) | null;
-  _processingIds: Set<string>;
+  // Plain Record instead of Set — Sets are not JSON-serializable and get
+  // silently corrupted when rehydrated from AsyncStorage.
+  _processingIds: Record<string, boolean>;
 
   addTask: (task: Omit<Task, "id" | "createdAt" | "done">) => Promise<void>;
   toggleTask: (id: string) => Promise<void>;
@@ -48,7 +50,7 @@ export const useTaskStore = create<TaskStore>()(
     (set, get) => ({
       tasks: [],
       _unsubscribe: null,
-      _processingIds: new Set(),
+      _processingIds: {},
 
       addTask: async (input) => {
         try {
@@ -68,12 +70,16 @@ export const useTaskStore = create<TaskStore>()(
               ...newTask,
               updatedAt: serverTimestamp(),
             });
-            await setDoc(doc(db, "users", uid, "tasks", id), data);
-
-            // Sync success: clear dirty flag
-            set((s) => ({
-              tasks: s.tasks.map((t) => t.id === id ? { ...t, _isDirty: false } : (t as any))
-            }));
+            // Fire-and-forget: Firestore offline cache queues this automatically
+            // and syncs when connectivity is restored. Do not await — it would
+            // hang forever when offline.
+            setDoc(doc(db, "users", uid, "tasks", id), data).then(() => {
+              set((s) => ({
+                tasks: s.tasks.map((t) => t.id === id ? { ...t, _isDirty: false } : (t as any))
+              }));
+            }).catch((e) => {
+              console.warn("[TaskStore] addTask Firestore write failed (will retry when online):", e);
+            });
           }
         } catch (error: any) {
           console.error("[TaskStore] Add failed:", error);
@@ -84,66 +90,62 @@ export const useTaskStore = create<TaskStore>()(
 
       toggleTask: async (id) => {
         const uid = auth.currentUser?.uid;
-        if (!uid || get()._processingIds.has(id)) return;
+        if (!uid || get()._processingIds[id] === true) return;
         
-        get()._processingIds.add(id);
+        get()._processingIds[id] = true;
         const task = get().tasks.find((t) => t.id === id);
         if (!task) {
-          get()._processingIds.delete(id);
+          const ids = { ...get()._processingIds };
+          delete ids[id];
+          set({ _processingIds: ids });
           return;
         }
 
         const nextDone = !task.done;
-        // Optimistic update + mark as Dirty to prevent server sync from overwriting it before it reaches Firestore
+        // Optimistic update immediately — UI feels instant
         set((state) => ({
           tasks: state.tasks.map((t) => (t.id === id ? { ...t, done: nextDone, _isDirty: true } : t)),
         }));
 
-        try {
-          await setDoc(doc(db, "users", uid, "tasks", id), { done: nextDone, updatedAt: serverTimestamp() }, { merge: true });
-          // Success: stop protecting
-          set((state) => ({
-            tasks: state.tasks.map((t) => (t.id === id ? { ...(t as any), _isDirty: false } : t)),
-          }));
-        } catch (error: any) {
-          console.error("[TaskStore] Toggle failed:", error);
-          // Revert on error
-          set((state) => ({
-            tasks: state.tasks.map((t) => (t.id === id ? { ...t, done: !nextDone } : t)),
-          }));
-          Alert.alert("Sync Error", "Could not update task on server");
-        } finally {
-          get()._processingIds.delete(id);
-        }
+        // Fire-and-forget — Firestore offline cache queues this and syncs when online
+        setDoc(doc(db, "users", uid, "tasks", id), { done: nextDone, updatedAt: serverTimestamp() }, { merge: true })
+          .then(() => {
+            set((state) => ({
+              tasks: state.tasks.map((t) => (t.id === id ? { ...(t as any), _isDirty: false } : t)),
+            }));
+          })
+          .catch((e) => {
+            console.warn("[TaskStore] toggleTask offline (will sync later):", e);
+          })
+          .finally(() => {
+            const ids = { ...get()._processingIds };
+            delete ids[id];
+            set({ _processingIds: ids });
+          });
+        // Release lock immediately for the optimistic case
+        // (the .finally above handles it after the async op)
       },
 
       deleteTask: async (id) => {
-        try {
-          set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
-          const uid = auth.currentUser?.uid;
-          if (uid) {
-            await deleteDoc(doc(db, "users", uid, "tasks", id));
-          }
-        } catch (error: any) {
-          console.error("[TaskStore] Delete failed:", error);
-          Alert.alert("Error", "Failed to delete task");
+        // Optimistic delete immediately
+        set((s) => ({ tasks: s.tasks.filter((t) => t.id !== id) }));
+        const uid = auth.currentUser?.uid;
+        if (uid) {
+          deleteDoc(doc(db, "users", uid, "tasks", id)).catch((e) => {
+            console.warn("[TaskStore] deleteTask offline (will sync later):", e);
+          });
         }
       },
 
       editTask: async (id, updates) => {
-        try {
-          set((s) => ({ tasks: s.tasks.map((t) => t.id === id ? { ...t, ...updates } : t) }));
-          const uid = auth.currentUser?.uid;
-          if (uid) {
-            const data = cleanFirestoreData({ 
-              ...updates, 
-              updatedAt: serverTimestamp() 
-            });
-            await updateDoc(doc(db, "users", uid, "tasks", id), data);
-          }
-        } catch (error: any) {
-          console.error("[TaskStore] Edit failed:", error);
-          Alert.alert("Error", "Failed to save changes");
+        // Optimistic update immediately
+        set((s) => ({ tasks: s.tasks.map((t) => t.id === id ? { ...t, ...updates } : t) }));
+        const uid = auth.currentUser?.uid;
+        if (uid) {
+          const data = cleanFirestoreData({ ...updates, updatedAt: serverTimestamp() });
+          updateDoc(doc(db, "users", uid, "tasks", id), data).catch((e) => {
+            console.warn("[TaskStore] editTask offline (will sync later):", e);
+          });
         }
       },
 
@@ -153,35 +155,43 @@ export const useTaskStore = create<TaskStore>()(
           const q = query(
             collection(db, "users", userId, "tasks"),
             orderBy("createdAt", "desc"),
-            limit(100),
+            // No hard limit — we need historical tasks for the weekly bar chart
+            // comparison (prev week vs this week). AsyncStorage caches them locally.
           );
           const unsub = onSnapshot(
-            q, 
-            { includeMetadataChanges: false }, 
+            q,
+            { includeMetadataChanges: false },
             (snap) => {
-              const serverTasks = snap.docs.map((d) => d.data({ serverTimestamps: "estimate" }) as Task);
-              
+              const serverTasks: Task[] = [];
+              for (const d of snap.docs) {
+                try {
+                  const data = d.data({ serverTimestamps: "estimate" });
+                  // Skip docs that are missing the id or title — prevents downstream crashes
+                  if (!data.id || typeof data.title !== "string") continue;
+                  serverTasks.push({
+                    id: data.id,
+                    title: data.title,
+                    description: typeof data.description === "string" ? data.description : "",
+                    priority: ["Low", "Medium", "High"].includes(data.priority) ? data.priority : "Medium",
+                    dueDateISO: typeof data.dueDateISO === "string" ? data.dueDateISO : toISO(new Date()),
+                    done: !!data.done,
+                    createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
+                  });
+                } catch (e) {
+                  console.warn("[TaskStore] Skipping malformed task doc:", d.id, e);
+                }
+              }
+
               set((state) => {
                 const currentTasks = state.tasks || [];
-                // Reconcile: Don't let server data overwrite tasks that are currently being edited locally
                 const merged = serverTasks.map((sTask) => {
-                  // Ensure mandatory fields exist
-                  const task = {
-                    ...sTask,
-                    priority: sTask.priority || "Medium",
-                    dueDateISO: sTask.dueDateISO || new Date().toISOString().slice(0, 10),
-                    done: !!sTask.done,
-                  };
-                  const local = currentTasks.find((l) => l.id === task.id);
+                  const local = currentTasks.find((l) => l.id === sTask.id);
                   if (local && (local as any)._isDirty) return local;
-                  return task;
+                  return sTask;
                 });
-                
-                // Keep local-only dirty tasks 
                 const localOnlyDirty = currentTasks.filter(
                   (l) => (l as any)._isDirty && !serverTasks.some((st) => st.id === l.id)
                 );
-                
                 return { tasks: [...merged, ...localOnlyDirty] };
               });
             },

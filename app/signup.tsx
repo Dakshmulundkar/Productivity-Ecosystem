@@ -15,6 +15,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { MaterialIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/use-colors";
+import { useProfileStore } from "@/store/useProfileStore";
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -56,7 +57,6 @@ export default function SignupScreen() {
       setError("");
       await signup(email, password, name);
       try {
-        const { useProfileStore } = require("@/store/useProfileStore");
         await useProfileStore.getState().setHasOnboarded(true);
       } catch (e) {
          // Fallback if store isn't available

@@ -8,9 +8,6 @@ import {
 } from "react-native";
 import Animated, {
   FadeInDown,
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { Check } from "lucide-react-native";
@@ -45,7 +42,6 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-const DAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEK_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // ─── Sub-view pill toggle ─────────────────────────────────────────────────────
@@ -87,7 +83,6 @@ const TodayView = memo(function TodayView({ onAddHabit }: { onAddHabit: () => vo
   const habits = useHabitStore((s) => s.habits);
   const habitLogs = useHabitStore((s) => s.logs);
   const logCompletion = useHabitStore((s) => s.logCompletion);
-  const removeLog = useHabitStore((s) => s.removeLog);
   const isCompleted = useHabitStore((s) => s.isCompleted);
   const getStreakForHabit = useHabitStore((s) => s.getStreakForHabit);
   const getLast5Days = useHabitStore((s) => s.getLast5Days);

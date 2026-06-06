@@ -270,7 +270,7 @@ const AnalyticsContent = memo(function AnalyticsContent({
   const handleFilter = useCallback((f: FilterOption) => {
     Haptics.selectionAsync();
     setActiveFilter(f);
-  }, []);
+  }, [setActiveFilter]);
 
   return (
     <ScrollView
@@ -315,9 +315,11 @@ const AnalyticsContent = memo(function AnalyticsContent({
           <View style={styles.legendRow}>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: "rgba(0,0,0,0.12)" }]} />
+              <Text style={styles.legendText}>Last week</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: "#1a1a1a" }]} />
+              <Text style={styles.legendText}>This week</Text>
             </View>
           </View>
         </View>
@@ -520,12 +522,12 @@ const styles = StyleSheet.create({
   legendRow: { flexDirection: "row", gap: 12 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   legendDot: { width: 8, height: 8, borderRadius: 2 },
-  legendText: { fontFamily: FontFamily.inter.medium, fontSize: 10, color: "#666" },
+  legendText: { fontFamily: FontFamily.inter.regular, fontSize: 10, color: "#666" },
   barsRow: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", height: MAX_BAR_HEIGHT + 40 },
   barColumn: { flex: 1, alignItems: "center", justifyContent: "flex-end", gap: 4 },
   barPercent: { fontFamily: FontFamily.inter.semiBold, fontSize: 10, color: "#aaa" },
   barPercentToday: { color: "#1a1a1a", fontFamily: FontFamily.inter.bold },
-  barTrack: { width: 30, height: MAX_BAR_HEIGHT, justifyContent: "flex-end", backgroundColor: "#f8f7f4", borderRadius: 6, overflow: "hidden", borderWeight: 1, borderColor: "rgba(0,0,0,0.03)" },
+  barTrack: { width: 30, height: MAX_BAR_HEIGHT, justifyContent: "flex-end", backgroundColor: "#f8f7f4", borderRadius: 6, overflow: "hidden", borderWidth: 1, borderColor: "rgba(0,0,0,0.03)" },
   barFill: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "#d0d0d0", borderRadius: 0, zIndex: 2 },
   barFillPrev: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(0,0,0,0.07)", borderRadius: 0, zIndex: 1 },
   barFillToday: { backgroundColor: "#1a1a1a" },

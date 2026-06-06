@@ -34,30 +34,6 @@ function colorWithOpacity(hex: string, opacity: number): string {
   return `rgba(${r},${g},${b},${opacity})`;
 }
 
-// ─── Seed data ────────────────────────────────────────────────────────────────
-
-const today       = toISO(new Date());
-const yesterday   = toISO(addDays(new Date(), -1));
-const twoDaysAgo  = toISO(addDays(new Date(), -2));
-const threeDaysAgo = toISO(addDays(new Date(), -3));
-
-const SEED_HABITS: Habit[] = [
-  { id: "h1", name: "Hydration", description: "Drink 8 glasses of water", icon: "Droplets", color: "#74b9ff", category: "Health", frequency: "daily", completionsPerDay: 1, createdAt: Date.now() - 7 * 86400000 },
-  { id: "h2", name: "Exercise",  description: "30 min workout",           icon: "Dumbbell", color: "#6BCB77", category: "Health", frequency: "daily", completionsPerDay: 1, createdAt: Date.now() - 14 * 86400000 },
-  { id: "h3", name: "Reading",   description: "Read for 20 minutes",      icon: "BookOpen", color: "#fd79a8", category: "Personal", frequency: "daily", completionsPerDay: 1, createdAt: Date.now() - 5 * 86400000 },
-];
-
-const SEED_LOGS: HabitLog[] = [
-  { id: "l1", habitId: "h1", date: yesterday,    completions: 1, completedAt: Date.now() - 86400000 },
-  { id: "l2", habitId: "h1", date: twoDaysAgo,   completions: 1, completedAt: Date.now() - 2 * 86400000 },
-  { id: "l3", habitId: "h1", date: threeDaysAgo, completions: 1, completedAt: Date.now() - 3 * 86400000 },
-  { id: "l4", habitId: "h2", date: today,        completions: 1, completedAt: Date.now() },
-  { id: "l5", habitId: "h2", date: yesterday,    completions: 1, completedAt: Date.now() - 86400000 },
-  { id: "l6", habitId: "h2", date: twoDaysAgo,   completions: 1, completedAt: Date.now() - 2 * 86400000 },
-  { id: "l7", habitId: "h2", date: threeDaysAgo, completions: 1, completedAt: Date.now() - 3 * 86400000 },
-  { id: "l8", habitId: "h3", date: yesterday,    completions: 1, completedAt: Date.now() - 86400000 },
-];
-
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 interface HabitStore {
@@ -65,7 +41,9 @@ interface HabitStore {
   logs: HabitLog[];
   _unsubHabits: Unsubscribe | null;
   _unsubLogs: Unsubscribe | null;
-  _processingIds: Set<string>;
+  // Use a plain Record instead of Set — Sets are not JSON-serializable
+  // and get silently corrupted on AsyncStorage rehydration.
+  _processingIds: Record<string, boolean>;
 
   addHabit: (input: NewHabitInput) => Promise<void>;
   deleteHabit: (id: string) => Promise<void>;
@@ -76,7 +54,7 @@ interface HabitStore {
   getSuccessRate: (habitId: string) => number;
   getBestStreak: (habitId: string) => number;
   getHeatmapData: (habitId: string, weeks: number) => HeatmapCell[];
-  getLast5Days: (habitId: string) => { date: string; dayLabel: string; completed: boolean; isToday: boolean }[];
+  getLast5Days: (habitId: string) => { date: string; dayLabel: string; completed: boolean; count: number; isToday: boolean }[];
   getTotalCompleted: () => number;
   subscribeToFirestore: (userId: string) => void;
   unsubscribeFromFirestore: () => void;
@@ -89,7 +67,7 @@ export const useHabitStore = create<HabitStore>()(
       logs: [],
       _unsubHabits: null,
       _unsubLogs: null,
-      _processingIds: new Set(),
+      _processingIds: {},
 
       addHabit: async (input: NewHabitInput) => {
         try {
@@ -109,12 +87,15 @@ export const useHabitStore = create<HabitStore>()(
               ...habit, 
               updatedAt: serverTimestamp() 
             });
-            await setDoc(doc(db, "users", uid, "habits", habit.id), data);
-            
-            // Sync success: clear dirty flag
-            set((s) => ({
-              habits: s.habits.map((h) => h.id === habit.id ? { ...h, _isDirty: false } : (h as any))
-            }));
+            // Fire-and-forget: Firestore offline cache queues this and
+            // syncs automatically when connectivity is restored.
+            setDoc(doc(db, "users", uid, "habits", habit.id), data).then(() => {
+              set((s) => ({
+                habits: s.habits.map((h) => h.id === habit.id ? { ...h, _isDirty: false } : (h as any))
+              }));
+            }).catch((e) => {
+              console.warn("[HabitStore] addHabit Firestore write failed (will retry when online):", e);
+            });
           }
         } catch (error: any) {
           console.error("[HabitStore] Add failed:", error);
@@ -123,27 +104,25 @@ export const useHabitStore = create<HabitStore>()(
       },
 
       deleteHabit: async (id) => {
-        try {
-          set((s) => ({ 
-            habits: s.habits.filter((h) => h.id !== id), 
-            logs: s.logs.filter((l) => l.habitId !== id) 
-          }));
-          const uid = auth.currentUser?.uid;
-          if (uid) {
-            await deleteDoc(doc(db, "users", uid, "habits", id));
-          }
-        } catch (error: any) {
-          console.error("[HabitStore] Delete failed:", error);
-          Alert.alert("Error", "Failed to delete habit");
+        // Optimistic delete immediately
+        set((s) => ({
+          habits: s.habits.filter((h) => h.id !== id),
+          logs: s.logs.filter((l) => l.habitId !== id),
+        }));
+        const uid = auth.currentUser?.uid;
+        if (uid) {
+          deleteDoc(doc(db, "users", uid, "habits", id)).catch((e) => {
+            console.warn("[HabitStore] deleteHabit offline (will sync later):", e);
+          });
         }
       },
 
       logCompletion: async (habitId, date, count = 1) => {
         const uid = auth.currentUser?.uid;
         const processKey = `${habitId}_${date}`;
-        if (!uid || get()._processingIds.has(processKey)) return;
+        if (!uid || get()._processingIds[processKey] === true) return;
 
-        get()._processingIds.add(processKey);
+        get()._processingIds[processKey] = true;
         try {
           const habit = get().habits.find((h) => h.id === habitId);
           if (!habit) return;
@@ -171,35 +150,37 @@ export const useHabitStore = create<HabitStore>()(
           }));
 
           if (nextCount === 0) {
-            await deleteDoc(doc(db, "users", uid, "habitLogs", id));
+            deleteDoc(doc(db, "users", uid, "habitLogs", id)).catch((e) => {
+              console.warn("[HabitStore] removeLog offline (will sync later):", e);
+            });
           } else {
-            await setDoc(doc(db, "users", uid, "habitLogs", id), cleanFirestoreData(newLog), { merge: true });
+            setDoc(doc(db, "users", uid, "habitLogs", id), cleanFirestoreData(newLog), { merge: true }).then(() => {
+              set((state) => ({
+                logs: state.logs.map((l) => (l.id === id ? { ...(l as any), _isDirty: false } : l))
+              }));
+            }).catch((e) => {
+              console.warn("[HabitStore] logCompletion offline (will sync later):", e);
+            });
           }
-          
-          // Release lock
-          set((state) => ({
-            logs: state.logs.map((l) => (l.id === id ? { ...(l as any), _isDirty: false } : l))
-          }));
         } catch (error: any) {
           console.error("[HabitStore] Log failed:", error);
           Alert.alert("Sync Error", "Failed to save completion");
         } finally {
-          get()._processingIds.delete(processKey);
+          const ids = { ...get()._processingIds };
+          delete ids[processKey];
+          set({ _processingIds: ids });
         }
       },
 
       removeLog: async (habitId, date) => {
-        try {
-          set((s) => ({ 
-            logs: s.logs.filter((l) => !(l.habitId === habitId && l.date === date)) 
-          }));
-          const uid = auth.currentUser?.uid;
-          if (uid) {
-            await deleteDoc(doc(db, "users", uid, "habitLogs", `${habitId}-${date}`));
-          }
-        } catch (error: any) {
-          console.error("[HabitStore] Remove log failed:", error);
-          Alert.alert("Error", "Failed to remove completion");
+        set((s) => ({
+          logs: s.logs.filter((l) => !(l.habitId === habitId && l.date === date)),
+        }));
+        const uid = auth.currentUser?.uid;
+        if (uid) {
+          deleteDoc(doc(db, "users", uid, "habitLogs", `${habitId}-${date}`)).catch((e) => {
+            console.warn("[HabitStore] removeLog offline (will sync later):", e);
+          });
         }
       },
 
@@ -306,20 +287,27 @@ export const useHabitStore = create<HabitStore>()(
           get()._unsubLogs?.();
           const unsubH = onSnapshot(
             query(collection(db, "users", userId, "habits"), orderBy("createdAt", "asc")),
-            (snap) => { 
-              const serverHabits = snap.docs.map((d) => {
-                const data = d.data({ serverTimestamps: "estimate" });
-                // Sanitization: Ensure required fields exist to prevent UI crashes
-                return {
-                  ...data,
-                  id: d.id,
-                  name: data.name || "Untitled Habit",
-                  icon: data.icon || "Activity",
-                  color: data.color || "#b8a9f0",
-                  completionsPerDay: Math.max(1, data.completionsPerDay || 1),
-                  createdAt: data.createdAt || Date.now(),
-                } as Habit;
-              });
+            (snap) => {
+              const serverHabits: Habit[] = [];
+              for (const d of snap.docs) {
+                try {
+                  const data = d.data({ serverTimestamps: "estimate" });
+                  serverHabits.push({
+                    id: d.id,
+                    name: typeof data.name === "string" && data.name ? data.name : "Untitled Habit",
+                    description: typeof data.description === "string" ? data.description : "",
+                    icon: typeof data.icon === "string" && data.icon ? data.icon : "Activity",
+                    color: typeof data.color === "string" && data.color.startsWith("#") ? data.color : "#b8a9f0",
+                    category: typeof data.category === "string" ? data.category : "General",
+                    frequency: data.frequency === "weekly" ? "weekly" : "daily",
+                    completionsPerDay: Math.max(1, Math.min(10, Number(data.completionsPerDay) || 1)),
+                    streakGoal: Number(data.streakGoal) || 30,
+                    createdAt: typeof data.createdAt === "number" ? data.createdAt : Date.now(),
+                  });
+                } catch (e) {
+                  console.warn("[HabitStore] Skipping malformed habit doc:", d.id, e);
+                }
+              }
               set((state) => {
                 const currentHabits = state.habits || [];
                 const merged = serverHabits.map((h) => {
@@ -338,8 +326,24 @@ export const useHabitStore = create<HabitStore>()(
           );
           const unsubL = onSnapshot(
             query(collection(db, "users", userId, "habitLogs"), orderBy("completedAt", "desc"), limit(200)),
-            (snap) => { 
-              const serverLogs = snap.docs.map((l) => l.data({ serverTimestamps: "estimate" }) as HabitLog);
+            (snap) => {
+              const serverLogs: HabitLog[] = [];
+              for (const d of snap.docs) {
+                try {
+                  const data = d.data({ serverTimestamps: "estimate" });
+                  // Skip docs missing required fields — prevents crashes in isCompleted/getLast5Days
+                  if (typeof data.habitId !== "string" || typeof data.date !== "string") continue;
+                  serverLogs.push({
+                    id: typeof data.id === "string" ? data.id : d.id,
+                    habitId: data.habitId,
+                    date: data.date,
+                    completions: Math.max(0, Number(data.completions) || 0),
+                    completedAt: typeof data.completedAt === "number" ? data.completedAt : Date.now(),
+                  });
+                } catch (e) {
+                  console.warn("[HabitStore] Skipping malformed log doc:", d.id, e);
+                }
+              }
               set((state) => {
                 const currentLogs = state.logs || [];
                 const merged = serverLogs.map((l) => {
@@ -347,7 +351,6 @@ export const useHabitStore = create<HabitStore>()(
                   if (local && (local as any)._isDirty) return local;
                   return l;
                 });
-                // Keep local-only dirty logs
                 const localOnlyDirty = currentLogs.filter(
                   (l) => (l as any)._isDirty && !serverLogs.some((sl) => sl.id === l.id)
                 );

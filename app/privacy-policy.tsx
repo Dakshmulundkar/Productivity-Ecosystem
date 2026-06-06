@@ -12,9 +12,9 @@ import { useRouter } from "expo-router";
 import { ArrowLeft } from "lucide-react-native";
 import { FontFamily } from "@/lib/_core/theme";
 
-const LAST_UPDATED = "May 31, 2026";
+const LAST_UPDATED = "June 6, 2026";
 const APP_NAME = "Vero";
-const CONTACT_EMAIL = "privacy@vero.app";
+const CONTACT_EMAIL = "bydaksh2806@gmail.com";
 
 export default function PrivacyPolicyScreen() {
   const insets = useSafeAreaInsets();
@@ -45,23 +45,23 @@ export default function PrivacyPolicyScreen() {
         </Section>
 
         <Section title="2. Information We Collect">
-          {`We collect the following types of information:\n\n• Account Information: When you register, we collect your name and email address.\n\n• Usage Data: We collect data about how you interact with the app, including tasks you create, habits you track, and focus sessions you complete.\n\n• Device Information: We may collect information about your device type, operating system version, and unique device identifiers for crash reporting and performance monitoring.\n\n• Authentication Data: If you sign in with Google, we receive your name, email address, and profile picture from Google. We do not receive or store your Google password.`}
+          {`We collect the following types of information:\n\n• Account Information: When you register, we collect your name and email address.\n\n• Usage Data: We collect data about how you interact with the app, including tasks you create, habits you track, and focus sessions you complete.\n\n• Device Information: We may collect information about your device type and operating system version for performance monitoring purposes.\n\n• Authentication Data: If you sign in with Google, we receive your name, email address, and profile picture. We do not receive or store your Google password.`}
         </Section>
 
         <Section title="3. How We Use Your Information">
-          {`We use the information we collect to:\n\n• Provide, operate, and maintain the ${APP_NAME} service\n• Sync your tasks, habits, and calendar events across your devices via Firebase\n• Personalize your experience (e.g., displaying your name in greetings)\n• Send you password reset emails when requested\n• Improve the app based on usage patterns\n• Respond to your support requests`}
+          {`We use the information we collect to:\n\n• Provide, operate, and maintain the ${APP_NAME} service\n• Sync your tasks, habits, and calendar events across your devices\n• Personalize your experience (e.g., displaying your name in greetings)\n• Send you password reset emails when requested\n• Improve the app based on usage patterns\n• Respond to your support requests`}
         </Section>
 
         <Section title="4. Data Storage and Security">
-          {`Your data is stored securely using Google Firebase (Firestore and Firebase Authentication). Firebase is a Google-operated platform that complies with industry-standard security practices including:\n\n• Data encryption in transit (TLS/SSL)\n• Data encryption at rest\n• Access controls and authentication\n\nWhile we implement strong security measures, no method of transmission over the internet is 100% secure. We cannot guarantee absolute security but strive to protect your data using commercially acceptable means.`}
+          {`Your data is stored securely using industry-standard cloud infrastructure. Our security practices include:\n\n• Data encryption in transit (TLS/SSL)\n• Data encryption at rest\n• Access controls and authentication\n\nWhile we implement strong security measures, no method of transmission over the internet is 100% secure. We cannot guarantee absolute security but strive to protect your data using commercially acceptable means.`}
         </Section>
 
         <Section title="5. Data Sharing">
-          {`We do not sell, trade, or rent your personal information to third parties. We may share data only in the following limited circumstances:\n\n• Service Providers: We use Google Firebase as our backend infrastructure. Google's privacy policy governs their handling of data.\n\n• Legal Requirements: We may disclose your information if required by law or in response to valid legal requests.\n\n• Business Transfers: If ${APP_NAME} is acquired or merged, your data may be transferred as part of that transaction.`}
+          {`We do not sell, trade, or rent your personal information to third parties. We may share data only in the following limited circumstances:\n\n• Cloud Infrastructure: We use trusted third-party cloud services to store and process your data. These providers maintain their own privacy and security standards.\n\n• Legal Requirements: We may disclose your information if required by law or in response to valid legal requests.\n\n• Business Transfers: If ${APP_NAME} is acquired or merged, your data may be transferred as part of that transaction.`}
         </Section>
 
         <Section title="6. Data Retention">
-          {`We retain your personal data for as long as your account is active or as needed to provide services. You may request deletion of your account and associated data at any time by contacting us at ${CONTACT_EMAIL}.\n\nLocal data stored on your device (tasks, habits, focus sessions) remains on your device until you uninstall the app or clear app data.`}
+          {`We retain your personal data for as long as your account is active or as needed to provide services. You may request deletion of your account and associated data at any time by contacting us at ${CONTACT_EMAIL}.\n\nData stored locally on your device remains until you uninstall the app or clear app data.`}
         </Section>
 
         <Section title="7. Your Rights">
@@ -72,8 +72,8 @@ export default function PrivacyPolicyScreen() {
           {`${APP_NAME} is not directed to children under the age of 13. We do not knowingly collect personal information from children under 13. If you believe we have inadvertently collected such information, please contact us immediately and we will take steps to delete it.`}
         </Section>
 
-        <Section title="9. Third-Party Services">
-          {`${APP_NAME} uses the following third-party services, each governed by their own privacy policies:\n\n• Google Firebase (Authentication, Firestore): firebase.google.com/support/privacy\n• Google Sign-In: policies.google.com/privacy\n• Expo (app framework): expo.dev/privacy`}
+        <Section title="9. Third-Party Authentication">
+          {`${APP_NAME} offers the option to sign in using your Google account. When you choose this option, Google's own privacy policy governs how they handle your authentication data. We only receive the basic profile information necessary to create your account.`}
         </Section>
 
         <Section title="10. Changes to This Policy">

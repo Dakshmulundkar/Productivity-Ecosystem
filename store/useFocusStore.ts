@@ -35,6 +35,8 @@ interface FocusStore {
   /** Call this on every UI tick AND on AppState foreground event */
   syncTimer: () => void;
   resetDailyIfNeeded: () => void;
+  syncToFirestore: () => Promise<void>;
+  subscribeToFirestore: () => void;
 }
 
 const SESSION_DURATIONS: Record<SessionType, number> = {
@@ -60,6 +62,8 @@ export const useFocusStore = create<FocusStore>()(
       lastResetDate: todayString(),
       startedAt: null,
       pausedElapsed: 0,
+
+      subscribeToFirestore: () => {},
 
       resetDailyIfNeeded: () => {
         const today = todayString();
@@ -144,22 +148,26 @@ export const useFocusStore = create<FocusStore>()(
         const { isRunning, startedAt, pausedElapsed, totalSeconds, sessionType } = get();
         if (!isRunning || !startedAt) return;
 
-        const totalElapsed = pausedElapsed + Math.floor((Date.now() - startedAt) / 1000);
-        const remaining = Math.max(0, totalSeconds - totalElapsed);
+        // Guard against NaN from corrupted AsyncStorage rehydration
+        const safePausedElapsed = typeof pausedElapsed === "number" && !isNaN(pausedElapsed) ? pausedElapsed : 0;
+        const safeTotalSeconds = typeof totalSeconds === "number" && totalSeconds > 0 ? totalSeconds : SESSION_DURATIONS["Pomodoro"];
+
+        const totalElapsed = safePausedElapsed + Math.floor((Date.now() - startedAt) / 1000);
+        const remaining = Math.max(0, safeTotalSeconds - totalElapsed);
 
         if (remaining <= 0) {
           // Session complete
-          const focusGain = sessionType === "Pomodoro" ? totalSeconds : 0;
+          const focusGain = sessionType === "Pomodoro" ? safeTotalSeconds : 0;
           set((state) => ({
             isRunning: false,
             isPaused: false,
             remainingSeconds: 0,
-            elapsedSeconds: totalSeconds,
+            elapsedSeconds: safeTotalSeconds,
             startedAt: null,
             pausedElapsed: 0,
-            focusSecondsToday: state.focusSecondsToday + focusGain,
+            focusSecondsToday: (state.focusSecondsToday || 0) + focusGain,
           }));
-          get().syncToFirestore(); // ── Sync to Cloud ──
+          get().syncToFirestore();
         } else {
           set({
             remainingSeconds: remaining,
@@ -208,23 +216,30 @@ export const useFocusStore = create<FocusStore>()(
   ),
 );
 
-// Subscribe to auth changes to sync focus time from Firestore if needed
-onAuthStateChanged(auth, async (user) => {
-  if (user) {
-    const today = todayString();
-    try {
-      const snap = await getDoc(doc(db, "users", user.uid, "dailyFocusTime", today));
-      if (snap.exists()) {
-        const data = snap.data();
-        const current = useFocusStore.getState().focusSecondsToday;
-        // Only update if server value is higher (prevents back-syncing 0)
-        if (data.seconds > current) {
-          useFocusStore.setState({ focusSecondsToday: data.seconds });
+// Subscribe to auth changes to sync focus time from Firestore on login.
+// This runs once at module load. The unsubscribe is intentionally kept alive
+// for the app lifetime (single user session pattern).
+let _focusAuthUnsub: (() => void) | null = null;
+function initFocusAuthSync() {
+  if (_focusAuthUnsub) return; // already initialised
+  _focusAuthUnsub = onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      const today = todayString();
+      try {
+        const snap = await getDoc(doc(db, "users", user.uid, "dailyFocusTime", today));
+        if (snap.exists()) {
+          const data = snap.data();
+          const current = useFocusStore.getState().focusSecondsToday;
+          // Only update if server value is higher (prevents back-syncing 0)
+          if (data.seconds > current) {
+            useFocusStore.setState({ focusSecondsToday: data.seconds });
+          }
         }
-      }
-    } catch {}
-  }
-});
+      } catch {}
+    }
+  });
+}
+initFocusAuthSync();
 
 export function formatFocusTime(seconds: number): string {
   if (seconds < 60) return seconds > 0 ? `${seconds}s` : "0m";

@@ -6,8 +6,6 @@ import Animated, {
   withSpring,
   withSequence,
   withTiming,
-  FadeIn,
-  FadeOut,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { Check, Trash2 } from "lucide-react-native";
@@ -30,7 +28,7 @@ interface HabitRowProps {
   streak: number;
   isCompleted: boolean;
   currentCompletions: number;
-  last5Days: { date: string; dayLabel: string; completed: boolean; isToday: boolean }[];
+  last5Days: { date: string; dayLabel: string; completed: boolean; count: number; isToday: boolean }[];
   onToggle: (habitId: string, date: string) => void;
   onDelete?: (habitId: string) => void;
   todayDate: string;
@@ -98,11 +96,15 @@ export const HabitRow = memo(function HabitRow({
       withSpring(1.15, SPRING),
       withSpring(1.0, SPRING),
     );
-    const next = !isCompleted;
-    checkOpacity.value = withTiming(next ? 1 : 0, { duration: 200 });
-    bgOpacity.value    = withTiming(next ? 1 : 0, { duration: 200 });
+    // Only animate the fill for single-completion habits
+    // Multi-completion habits use the SVG ring which updates from currentCompletions prop
+    if (habit.completionsPerDay === 1) {
+      const next = !isCompleted;
+      checkOpacity.value = withTiming(next ? 1 : 0, { duration: 200 });
+      bgOpacity.value    = withTiming(next ? 1 : 0, { duration: 200 });
+    }
     onToggle(habit.id, todayDate);
-  }, [habit.id, todayDate, isCompleted, onToggle, checkScale, checkOpacity, bgOpacity, showDelete]);
+  }, [habit.id, habit.completionsPerDay, todayDate, isCompleted, onToggle, checkScale, checkOpacity, bgOpacity, showDelete]);
 
   const handleLongPress = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -156,7 +158,7 @@ export const HabitRow = memo(function HabitRow({
           {habit.completionsPerDay === 1 && (
             <Animated.View
               style={[
-                StyleSheet.absoluteFillObject,
+                StyleSheet.absoluteFill as object,
                 styles.checkCircleFill,
                 { backgroundColor: habit.color },
                 bgAnimStyle,
@@ -172,8 +174,8 @@ export const HabitRow = memo(function HabitRow({
                     const filled = i < currentCompletions;
                     const angle = 360 / habit.completionsPerDay;
                     const rotation = i * angle - 90;
-                    const strokeDash = 100; // arbitrary total length
-                    const gap = 2; // gap between segments in degrees
+                    // gap between segments in degrees
+                    const gap = 2;
                     const strokePercent = (angle - gap) / 360;
                     const circum = 2 * Math.PI * 18; // radius 18
                     

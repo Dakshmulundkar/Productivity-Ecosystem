@@ -100,7 +100,7 @@ export const TasksCard = memo(function TasksCard({
           <Text style={styles.emptyText}>No tasks for this period</Text>
         </View>
       ) : (
-        tasks.map((task, index) => (
+        tasks.filter(Boolean).map((task, index) => (
           <TaskRow
             key={task.id}
             task={task}

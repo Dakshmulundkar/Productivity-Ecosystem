@@ -13,7 +13,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Linking,
   Image,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -21,31 +20,19 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
-import * as Notifications from "expo-notifications";
 import {
   Sun,
   Bell,
-  Globe,
   User,
-  Lock,
-  Link,
-  Download,
-  Cloud,
-  Star,
-  HelpCircle,
-  Shield,
   ChevronRight,
   LogOut,
   X,
-  Check,
   Camera,
-} from "lucide-native";
-import { auth } from "@/lib/firebase";
+} from "lucide-react-native";
 import { FontFamily } from "@/lib/_core/theme";
 import { useAuth } from "@/lib/auth-context";
 import { getInitials } from "@/lib/dashboard-utils";
 import { useTaskStore } from "@/store/useTaskStore";
-import { useProfileStore } from "@/store/useProfileStore";
 
 // ─── Edit Profile Modal ───────────────────────────────────────────────────────
 
